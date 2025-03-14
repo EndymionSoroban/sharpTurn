@@ -19,6 +19,8 @@ let finishOrder = [];
 
 // Initialize the game
 function initGame() {
+    console.log("Game initialization started");
+    
     // Clear any existing game state
     players = [];
     activePlayers = [];
@@ -27,25 +29,29 @@ function initGame() {
     
     // Apply difficulty settings
     aiSettings = GameSettings.applySettings();
+    console.log("Applied game settings:", aiSettings);
     
     // Get enabled players from settings
     const enabledPlayers = GameSettings.getEnabledPlayers();
     const playerCount = enabledPlayers.length;
+    console.log("Enabled players:", playerCount);
     
     // Reset AI tracking arrays
     aiDecisionCounters = Array(playerCount).fill(0);
     lastAiMoves = Array(playerCount).fill(0);
     
-    // Calculate starting positions based on number of players
+    // Create players
     createPlayers(enabledPlayers);
+    console.log("Players created:", players.length);
     
     // Set up key event listeners
     window.onkeydown = function (e) { keyPressed[e.keyCode] = true; }
     window.onkeyup = function (e) { keyPressed[e.keyCode] = false; }
     
     // Start game loop
-    requestAnimationFrame(gameLoop);
     gameStarted = true;
+    requestAnimationFrame(gameLoop);
+    console.log("Game loop started");
 }
 
 // Create players based on settings
@@ -64,27 +70,27 @@ function createPlayers(enabledPlayers) {
         const startX = centerX + Math.cos(angle) * radius;
         const startY = centerY + Math.sin(angle) * radius;
         
-        // Initial direction points toward center to get things started
-        const initialDirection = 2; // Base speed
-        const dirX = (centerX - startX) / 100; // Normalize
-        const dirY = (centerY - startY) / 100; // Normalize
-        
         // Create the player
         const isHuman = player.type === 'human';
-        const speed = isHuman ? aiSettings.playerSpeed : aiSettings.aiSpeed;
+        const playerSpeed = isHuman ? aiSettings.playerSpeed : aiSettings.aiSpeed;
+        
+        console.log(`Creating player ${index+1}:`, {
+            x: startX,
+            y: startY,
+            color: player.color,
+            speed: playerSpeed,
+            isHuman: isHuman
+        });
         
         const newPlayer = new Player(
             startX, 
             startY, 
             player.color, 
-            speed, 
+            playerSpeed, 
             isHuman,
             index,
             player.controls
         );
-        
-        // Set initial direction vector
-        newPlayer.initialDirection(dirX, dirY);
         
         // Add to players array
         players.push(newPlayer);
@@ -94,9 +100,13 @@ function createPlayers(enabledPlayers) {
 
 // Main game loop
 function gameLoop(timestamp) {
-    if (!gameStarted) return;
+    if (!gameStarted) {
+        console.log("Game not started, exiting game loop");
+        return;
+    }
     
-    if (timestamp < lastFrameTimeMs + (500 / maxFPS)) {
+    // Frame rate limiting
+    if (timestamp < lastFrameTimeMs + (1000 / maxFPS)) {
         requestAnimationFrame(gameLoop);
         return;
     }
@@ -107,6 +117,7 @@ function gameLoop(timestamp) {
     
     // Check if game is over (0 or 1 player left)
     if (activePlayers.length <= 1) {
+        console.log("Game ending - only", activePlayers.length, "players left");
         endRound();
         return;
     }
@@ -201,12 +212,6 @@ function computerMove(playerIdx) {
         return Math.random() < 0.5 ? angleDelta : -angleDelta;
     }
     
-    // Check for immediate wall avoidance first
-    const avoidanceMove = addAvoidanceLogic(playerIdx);
-    if (avoidanceMove !== null) {
-        return avoidanceMove;
-    }
-    
     // Store original positions to restore after simulation
     const restorePositions = players.map(p => p.arrayOfPos.slice());
     
@@ -232,13 +237,62 @@ function computerMove(playerIdx) {
     return bestDirection;
 }
 
-// Evaluate a potential move for an AI player
+// Simple wall avoidance logic for AI
+function addAvoidanceLogic(playerIdx) {
+    const player = players[playerIdx];
+    const pos = player.arrayOfPos[player.arrayOfPos.length - 1];
+    
+    // Wall detection threshold
+    const wallThreshold = 100;
+    
+    // Check for nearby walls
+    const nearLeftWall = pos[0] < wallThreshold;
+    const nearRightWall = pos[0] > canvas.width - wallThreshold;
+    const nearTopWall = pos[1] < wallThreshold;
+    const nearBottomWall = pos[1] > canvas.height - wallThreshold;
+    
+    // If near any wall, adjust direction to move away
+    if (nearLeftWall) {
+        return angleDelta; // Turn right to avoid left wall
+    } else if (nearRightWall) {
+        return -angleDelta; // Turn left to avoid right wall
+    } else if (nearTopWall || nearBottomWall) {
+        return pos[0] < canvas.width / 2 ? angleDelta : -angleDelta;
+    }
+    
+    return null; // No immediate wall avoidance needed
+}
+
+// Evaluate a potential move for an AI player (simplified)
 function evaluateMove(playerIdx, direction) {
     let survivalFrames = 0;
-    let scoreBonus = 0;
+    const player = players[playerIdx];
+    const MAX_FRAMES = 30;
+    
+    // Simulate future moves
+    for (let i = 0; i < MAX_FRAMES; i++) {
+        // Move player in test direction
+        player.addPosition(direction);
+        
+        // Check if player would collide with anything
+        if (player.checkCollision(players)) {
+            break;
+        }
+        
+        survivalFrames++;
+    }
+    
+    return survivalFrames;
+}
+
+// Simple prediction of player direction
+function predictPlayerDirection(playerIdx) {
     const player = players[playerIdx];
     
-    // Get the current positions of all players
-    const playerPositions = {};
-    activePlayers.forEach(idx => {
-        playerPositions[idx] = predictPlayerDirection(idx);
+    if (player.arrayOfPos.length < 3) {
+        return 0;
+    }
+    
+    // For AI players, just continue in same direction most of the time
+    return lastAiMoves[playerIdx];
+}
