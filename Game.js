@@ -1,41 +1,43 @@
-// Game.js - Main game logic with difficulty settings integration
+// Game.js - Main game logic with multiplayer support
 const canvas = document.getElementById("gameCanvas");
 const canvasContext = canvas.getContext("2d");
 
 // Game state variables
-let speed;
-let angleDelta;
+let speed = 2;
+let angleDelta = 4;
 let lineWidth = 10;
 let keyPressed = {};
 let players = [];
-let newPlayer;
-let botPlayer;
+let activePlayers = [];
 let lastFrameTimeMs = 0;
 let maxFPS = 30;
 let gameStarted = false;
 let aiSettings;
-let aiDecisionCounter = 0;
-let lastAiMove = 0;
+let aiDecisionCounters = [];
+let lastAiMoves = [];
+let finishOrder = [];
 
 // Initialize the game
 function initGame() {
     // Clear any existing game state
     players = [];
+    activePlayers = [];
     keyPressed = {};
+    finishOrder = [];
     
     // Apply difficulty settings
     aiSettings = GameSettings.applySettings();
     
-    // Set initial positions
-    let startPos = Math.random() * 350 + 100;
+    // Get enabled players from settings
+    const enabledPlayers = GameSettings.getEnabledPlayers();
+    const playerCount = enabledPlayers.length;
     
-    // Create players
-    newPlayer = new Player(startPos - 100, startPos, "Green", speed, true);
-    botPlayer = new Player(900 - startPos, 800 - startPos, "Red", aiSettings.aiSpeed, false);
+    // Reset AI tracking arrays
+    aiDecisionCounters = Array(playerCount).fill(0);
+    lastAiMoves = Array(playerCount).fill(0);
     
-    // Add players to array
-    players.push(newPlayer);
-    players.push(botPlayer);
+    // Calculate starting positions based on number of players
+    createPlayers(enabledPlayers);
     
     // Set up key event listeners
     window.onkeydown = function (e) { keyPressed[e.keyCode] = true; }
@@ -44,6 +46,50 @@ function initGame() {
     // Start game loop
     requestAnimationFrame(gameLoop);
     gameStarted = true;
+}
+
+// Create players based on settings
+function createPlayers(enabledPlayers) {
+    const playerCount = enabledPlayers.length;
+    
+    // Create players in a circular arrangement
+    enabledPlayers.forEach((player, index) => {
+        // Calculate position based on player index and count
+        const angle = (index / playerCount) * Math.PI * 2;
+        const radius = canvas.width * 0.35; // Position at 35% from center to edge
+        
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        
+        const startX = centerX + Math.cos(angle) * radius;
+        const startY = centerY + Math.sin(angle) * radius;
+        
+        // Initial direction points toward center to get things started
+        const initialDirection = 2; // Base speed
+        const dirX = (centerX - startX) / 100; // Normalize
+        const dirY = (centerY - startY) / 100; // Normalize
+        
+        // Create the player
+        const isHuman = player.type === 'human';
+        const speed = isHuman ? aiSettings.playerSpeed : aiSettings.aiSpeed;
+        
+        const newPlayer = new Player(
+            startX, 
+            startY, 
+            player.color, 
+            speed, 
+            isHuman,
+            index,
+            player.controls
+        );
+        
+        // Set initial direction vector
+        newPlayer.initialDirection(dirX, dirY);
+        
+        // Add to players array
+        players.push(newPlayer);
+        activePlayers.push(index);
+    });
 }
 
 // Main game loop
@@ -59,77 +105,110 @@ function gameLoop(timestamp) {
     // Update game state
     updateGame();
     
+    // Check if game is over (0 or 1 player left)
+    if (activePlayers.length <= 1) {
+        endRound();
+        return;
+    }
+    
     // Request next frame
     requestAnimationFrame(gameLoop);
 }
 
 // Update game state each frame
 function updateGame() {
-    // Handle player input
-    let playerAngle = 0;
-    if (keyPressed[39]) {
-        playerAngle = angleDelta;
-    } else if (keyPressed[37]) {
-        playerAngle = -angleDelta;
-    }
+    // Process movements for all active players
+    activePlayers.forEach(playerIdx => {
+        const player = players[playerIdx];
+        
+        if (player.isHuman) {
+            // Handle human player input
+            let playerAngle = 0;
+            const controls = player.controls;
+            
+            if (keyPressed[controls.right]) {
+                playerAngle = angleDelta;
+            } else if (keyPressed[controls.left]) {
+                playerAngle = -angleDelta;
+            }
+            
+            player.addPosition(playerAngle);
+        } else {
+            // Handle AI player
+            aiDecisionCounters[playerIdx]++;
+            let aiAngle = lastAiMoves[playerIdx];
+            
+            // Only make AI decisions at intervals based on reaction time
+            if (aiDecisionCounters[playerIdx] >= aiSettings.aiReactionTime) {
+                aiAngle = computerMove(playerIdx);
+                lastAiMoves[playerIdx] = aiAngle;
+                aiDecisionCounters[playerIdx] = 0;
+            }
+            
+            player.addPosition(aiAngle);
+        }
+    });
     
-    // Get AI move
-    aiDecisionCounter++;
-    let aiAngle = lastAiMove;
-    
-    // Only make AI decisions at intervals based on reaction time
-    if (aiDecisionCounter >= aiSettings.aiReactionTime) {
-        aiAngle = computerMove();
-        lastAiMove = aiAngle;
-        aiDecisionCounter = 0;
-    }
-    
-    // Update player positions
-    newPlayer.addPosition(playerAngle);
-    botPlayer.addPosition(aiAngle);
-    
-    // Draw players
+    // Draw all players
     Player.displayPlayers(players);
     
     // Check for collisions
-    const collisionResult = checkCollisions();
-    if (collisionResult) {
-        endGame(collisionResult);
-    }
+    checkCollisions();
 }
 
 // Check for collisions
 function checkCollisions() {
-    if (newPlayer.checkCollision(players) == newPlayer) {
-        return "Computer Wins!";
-    } else if (newPlayer.checkCollision(players) == botPlayer) {
-        return "Player Wins!";
+    // Make a copy of active players to safely modify during iteration
+    const currentActivePlayers = [...activePlayers];
+    
+    for (const playerIdx of currentActivePlayers) {
+        const player = players[playerIdx];
+        const collided = player.checkCollision(players);
+        
+        if (collided) {
+            // Record player elimination
+            const playerIndex = activePlayers.indexOf(playerIdx);
+            if (playerIndex !== -1) {
+                // Add to finish order (last to first)
+                finishOrder.unshift(playerIdx);
+                
+                // Remove from active players
+                activePlayers.splice(playerIndex, 1);
+            }
+        }
     }
-    return null;
 }
 
-// End the game
-function endGame(resultText) {
+// End the round and show scores
+function endRound() {
     gameStarted = false;
-    window.showGameOver(resultText);
+    
+    // If there's still one player remaining, add them as the winner
+    if (activePlayers.length === 1) {
+        finishOrder.unshift(activePlayers[0]);
+    }
+    
+    // Show round over screen with scores
+    window.showRoundOver(finishOrder);
 }
 
 // AI logic
-function computerMove() {
+function computerMove(playerIdx) {
+    const player = players[playerIdx];
+    
     // Apply randomness based on difficulty
     if (Math.random() < aiSettings.aiRandomness) {
         return Math.random() < 0.5 ? angleDelta : -angleDelta;
     }
     
     // Check for immediate wall avoidance first
-    const avoidanceMove = addAvoidanceLogic();
+    const avoidanceMove = addAvoidanceLogic(playerIdx);
     if (avoidanceMove !== null) {
         return avoidanceMove;
     }
     
     // Store original positions to restore after simulation
-    let restorePositionBot = botPlayer.arrayOfPos.slice();
-    let restorePositionPlayer = newPlayer.arrayOfPos.slice();
+    const restorePositions = players.map(p => p.arrayOfPos.slice());
     
     // Define directions to test
     const directions = [-angleDelta, 0, angleDelta];
@@ -138,162 +217,28 @@ function computerMove() {
     
     // Test each direction
     for (const direction of directions) {
-        let score = evaluateMove(direction);
+        let score = evaluateMove(playerIdx, direction);
         if (score > bestScore) {
             bestScore = score;
             bestDirection = direction;
         }
         
         // Restore positions for next simulation
-        botPlayer.arrayOfPos = restorePositionBot.slice();
-        newPlayer.arrayOfPos = restorePositionPlayer.slice();
+        players.forEach((p, idx) => {
+            p.arrayOfPos = restorePositions[idx].slice();
+        });
     }
     
     return bestDirection;
 }
 
-// Evaluate a potential move
-function evaluateMove(direction) {
+// Evaluate a potential move for an AI player
+function evaluateMove(playerIdx, direction) {
     let survivalFrames = 0;
     let scoreBonus = 0;
+    const player = players[playerIdx];
     
-    // Predict player's likely movement
-    let playerLikelyDirection = predictPlayerDirection();
-    
-    // Simulate future moves
-    for (let i = 0; i < aiSettings.aiLookAhead; i++) {
-        // Move bot in test direction
-        botPlayer.addPosition(direction);
-        
-        // Move player in predicted direction
-        newPlayer.addPosition(playerLikelyDirection);
-        
-        // Check if bot would collide
-        if (newPlayer.checkCollision(players) == botPlayer) {
-            break;
-        }
-        
-        survivalFrames++;
-        
-        // Add bonus for moves that lead toward the player
-        if (i > 10 && isMovingTowardPlayer(botPlayer, newPlayer, direction)) {
-            scoreBonus += aiSettings.aiAggressiveness;
-        }
-        
-        // Add bonus for staying near the center
-        scoreBonus += calculateCenterBonus(botPlayer);
-    }
-    
-    return survivalFrames + scoreBonus;
-}
-
-// Predict player's likely direction
-function predictPlayerDirection() {
-    // Simple prediction based on last few moves
-    if (newPlayer.arrayOfPos.length < 3) {
-        return 0;
-    }
-    
-    // Get the last three positions
-    const positions = newPlayer.arrayOfPos.slice(-3);
-    
-    // Calculate the change in angle between the last segments
-    const angle1 = Math.atan2(
-        positions[1][1] - positions[0][1],
-        positions[1][0] - positions[0][0]
-    );
-    const angle2 = Math.atan2(
-        positions[2][1] - positions[1][1],
-        positions[2][0] - positions[1][0]
-    );
-    
-    // Calculate the difference in radians
-    let angleDiff = angle2 - angle1;
-    
-    // Convert to degrees and normalize
-    angleDiff = (angleDiff * 180 / Math.PI) % 360;
-    if (angleDiff > 180) angleDiff -= 360;
-    if (angleDiff < -180) angleDiff += 360;
-    
-    // Predict continued turning based on recent movement
-    if (Math.abs(angleDiff) < 1) return 0;
-    return angleDiff > 0 ? angleDelta : -angleDelta;
-}
-
-// Check if bot is moving toward player
-function isMovingTowardPlayer(bot, player, direction) {
-    // Get current positions
-    const botPos = bot.arrayOfPos[bot.arrayOfPos.length - 1];
-    const playerPos = player.arrayOfPos[player.arrayOfPos.length - 1];
-    
-    // Calculate angle to player
-    const angleToPlayer = Math.atan2(
-        playerPos[1] - botPos[1],
-        playerPos[0] - botPos[0]
-    ) * 180 / Math.PI;
-    
-    // Calculate bot's current direction
-    const botPos2 = bot.arrayOfPos[bot.arrayOfPos.length - 2];
-    const botDirection = Math.atan2(
-        botPos[1] - botPos2[1],
-        botPos[0] - botPos2[0]
-    ) * 180 / Math.PI;
-    
-    // Calculate the difference between the two angles
-    let angleDiff = Math.abs(angleToPlayer - botDirection) % 360;
-    if (angleDiff > 180) angleDiff = 360 - angleDiff;
-    
-    // If we're already pointed roughly toward the player, return true
-    if (angleDiff < 45) return true;
-    
-    // Is the current direction helping to turn toward the player?
-    const newDirection = (botDirection + direction) % 360;
-    const newAngleDiff = Math.abs(angleToPlayer - newDirection) % 360;
-    
-    return newAngleDiff < angleDiff;
-}
-
-// Calculate bonus for staying near center
-function calculateCenterBonus(player) {
-    // Get current position
-    const pos = player.arrayOfPos[player.arrayOfPos.length - 1];
-    
-    // Calculate distance from center (normalized to 0-1)
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    const maxDistance = Math.sqrt(centerX * centerX + centerY * centerY);
-    
-    const distance = Math.sqrt(
-        Math.pow(pos[0] - centerX, 2) + 
-        Math.pow(pos[1] - centerY, 2)
-    );
-    
-    // Convert to a bonus (higher when closer to center)
-    return 0.5 * (1 - (distance / maxDistance));
-}
-
-// Add wall avoidance logic
-function addAvoidanceLogic() {
-    // Get current position of bot
-    const botPos = botPlayer.arrayOfPos[botPlayer.arrayOfPos.length - 1];
-    
-    // Wall detection threshold (based on difficulty)
-    const wallThreshold = 100 - (aiSettings.difficulty === 'hard' ? 20 : 0);
-    
-    // Check for nearby walls
-    const nearLeftWall = botPos[0] < wallThreshold;
-    const nearRightWall = botPos[0] > canvas.width - wallThreshold;
-    const nearTopWall = botPos[1] < wallThreshold;
-    const nearBottomWall = botPos[1] > canvas.height - wallThreshold;
-    
-    // If near any wall, adjust direction to move away
-    if (nearLeftWall) {
-        return angleDelta; // Turn right to avoid left wall
-    } else if (nearRightWall) {
-        return -angleDelta; // Turn left to avoid right wall
-    } else if (nearTopWall || nearBottomWall) {
-        return botPos[0] < canvas.width / 2 ? angleDelta : -angleDelta;
-    }
-    
-    return null; // No immediate wall avoidance needed
-}
+    // Get the current positions of all players
+    const playerPositions = {};
+    activePlayers.forEach(idx => {
+        playerPositions[idx] = predictPlayerDirection(idx);
