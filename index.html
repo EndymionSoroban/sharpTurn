@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Curve Game</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #121212;
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        canvas {
+            background-color: black;
+            border-radius: 8px;
+            display: none;
+        }
+
+        #gameTitle {
+            font-size: 42px;
+            margin-bottom: 30px;
+            color: #4CAF50;
+            text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        #selectionScreen {
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            width: 500px;
+        }
+
+        .difficulty-btn {
+            background-color: #333;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px;
+            font-size: 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 80%;
+        }
+
+        .difficulty-btn:hover {
+            transform: scale(1.05);
+        }
+
+        #easyBtn {
+            background-color: #4CAF50;
+        }
+
+        #mediumBtn {
+            background-color: #FFC107;
+        }
+
+        #hardBtn {
+            background-color: #F44336;
+        }
+
+        .controls-info {
+            margin-top: 30px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            display: none;
+        }
+
+        #gameOverText {
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        #playAgainBtn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameTitle">CURVE FEVER</div>
+    
+    <div id="selectionScreen">
+        <h2>Select Difficulty</h2>
+        <button id="easyBtn" class="difficulty-btn">Easy</button>
+        <button id="mediumBtn" class="difficulty-btn">Medium</button>
+        <button id="hardBtn" class="difficulty-btn">Hard</button>
+        
+        <div class="controls-info">
+            <p>Player 1: Use ← and → arrows to steer</p>
+            <p>Player 2 (Local): Use A and D keys to steer</p>
+        </div>
+    </div>
+    
+    <canvas id="gameCanvas" width="800" height="800"></canvas>
+    
+    <div id="gameOver">
+        <div id="gameOverText">Game Over!</div>
+        <button id="playAgainBtn">Play Again</button>
+    </div>
+
+    <script src="Player.js"></script>
+    <script src="GameSettings.js"></script>
+    <script src="Game.js"></script>
+</body>
+</html>
