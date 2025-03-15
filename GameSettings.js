@@ -46,7 +46,7 @@ const GameSettings = {
             playerSpeed: 2,             // Player movement speed
             aiSpeed: 1.8,               // AI movement speed
             angleDelta: 3,              // Turn rate (degrees)
-            gapFrequency: [75, 100]     // Range for gap frequency [min, max]
+            gapFrequency: [75, 120]     // Range for gap frequency [min, max] - longer intervals on easy
         },
         medium: {
             aiLookAhead: 50,
@@ -66,7 +66,7 @@ const GameSettings = {
             playerSpeed: 2,
             aiSpeed: 2.2,
             angleDelta: 5,
-            gapFrequency: [35, 60]
+            gapFrequency: [30, 60]      // More frequent gaps on hard
         }
     },
     

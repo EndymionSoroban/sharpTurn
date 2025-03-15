@@ -1,184 +1,394 @@
+// Player.js - Player class with improved collision detection, rendering, and gap generation
+
 class Player {
     constructor(xPos, yPos, color, speed, isHuman, index, controls) {
+        // Basic properties
         this.speed = speed;
         this.color = color;
         this.isHuman = isHuman;
         this.index = index;
         this.controls = controls;
-        this.canvas = canvas;
+        this.lineWidth = 10;
+        
+        // Position tracking
         this.arrayOfPos = [];
         this.gapArray = [];
         
         // Get gap settings from difficulty
         const settings = GameSettings.difficultySettings[GameSettings.difficulty];
-        const minGap = settings.gapFrequency ? settings.gapFrequency[0] : 50;
-        const maxGap = settings.gapFrequency ? settings.gapFrequency[1] : 80;
         
-        // Gap settings
-        this.gapFrequency = Math.random() * (maxGap - minGap) + minGap;
-        this.gapSize = Math.random() * 10 + 10;
-        this.gapFrequencyCounter = 0;
-        this.gapSizeCounter = 0;
+        // Gap settings - now with wider range and randomness
+        this.minGapInterval = settings.gapFrequency ? settings.gapFrequency[0] : 50;
+        this.maxGapInterval = settings.gapFrequency ? settings.gapFrequency[1] : 120;
+        this.minGapSize = 10;
+        this.maxGapSize = 40;
         
-        // Starting position - need at least two points to establish direction
+        // Initialize gap generation system
+        this.nextGapIn = this.calculateNextGapInterval();
+        this.currentGapSize = this.calculateGapSize();
+        this.gapCounter = 0;
+        this.inGap = false;
+        
+        // Performance optimization
+        this.collisionGrid = {}; // Grid-based collision detection
+        this.gridCellSize = this.lineWidth * 3; // Size of each grid cell
+        this.lastGridUpdateTime = 0; // When the grid was last updated
+        
+        // Starting position - just one point initially
         this.arrayOfPos.push([xPos, yPos]);
-        
-        // Add second point in a default direction (will be updated by initialDirection)
-        this.arrayOfPos.push([xPos + this.speed, yPos + this.speed]);
-        
-        console.log(`Player ${index+1} created at (${xPos}, ${yPos}) with color ${color}`);
     }
     
-    // Set initial direction based on x,y vector
+    // Calculate random interval until next gap
+    calculateNextGapInterval() {
+        return Math.floor(Math.random() * (this.maxGapInterval - this.minGapInterval + 1)) + this.minGapInterval;
+    }
+    
+    // Calculate random gap size
+    calculateGapSize() {
+        return Math.floor(Math.random() * (this.maxGapSize - this.minGapSize + 1)) + this.minGapSize;
+    }
+    
+    // Set initial direction based on x,y vector (toward center)
     initialDirection(dirX, dirY) {
-        // Remove default second point
-        this.arrayOfPos.pop();
-        
-        // Add proper second point based on direction
         const firstPos = this.arrayOfPos[0];
         const magnitude = Math.sqrt(dirX * dirX + dirY * dirY);
         const normalizedX = dirX / magnitude * this.speed;
         const normalizedY = dirY / magnitude * this.speed;
         
+        // Add second point in direction of center
         this.arrayOfPos.push([
             firstPos[0] + normalizedX,
             firstPos[1] + normalizedY
         ]);
-        
-        console.log(`Player ${this.index+1} direction set to (${normalizedX}, ${normalizedY})`);
     }
 
     // Calculate next position given the angle
     addPosition(setAngle) {
-        this.angle = setAngle * Math.PI / 180;
-        // Difference between 2 last positions
-        let x = this.arrayOfPos[this.arrayOfPos.length - 2];
-        let y = this.arrayOfPos[this.arrayOfPos.length - 1];
-        let xPosDelta = (y[0] - x[0]);
-        let yPosDelta = (y[1] - x[1]);
+        const angle = setAngle * Math.PI / 180;
+        
+        // Get last two positions
+        const lastIdx = this.arrayOfPos.length - 1;
+        const lastPos = this.arrayOfPos[lastIdx];
+        const prevPos = this.arrayOfPos[lastIdx - 1];
+        
+        // Direction vector
+        const xPosDelta = (lastPos[0] - prevPos[0]);
+        const yPosDelta = (lastPos[1] - prevPos[1]);
 
-        // Calculation of the rotation on the move
-        let xPos = xPosDelta * Math.cos(this.angle) - yPosDelta * Math.sin(this.angle);
-        let yPos = xPosDelta * Math.sin(this.angle) + yPosDelta * Math.cos(this.angle);
+        // Rotation calculation
+        const xPos = xPosDelta * Math.cos(angle) - yPosDelta * Math.sin(angle);
+        const yPos = xPosDelta * Math.sin(angle) + yPosDelta * Math.cos(angle);
 
-        xPos += y[0];
-        yPos += y[1];
-
-        this.arrayOfPos.push([xPos, yPos]);
+        // Add new position
+        const newPos = [
+            lastPos[0] + xPos,
+            lastPos[1] + yPos
+        ];
+        this.arrayOfPos.push(newPos);
+        
+        // Handle gap generation
+        this.updateGapState(newPos);
+        
+        // Update collision grid occasionally for better performance
+        const frameCounter = window.frameCounter || 0;
+        if (frameCounter - this.lastGridUpdateTime > 10) {
+            this.updateCollisionGrid();
+            this.lastGridUpdateTime = frameCounter;
+        }
     }
-
-    // Function for drawing line
-    line(x1, y1, x2, y2) {
-        canvasContext.beginPath();
-        canvasContext.moveTo(x1, y1);
-        canvasContext.lineTo(x2, y2);
-        canvasContext.lineCap = "round";
-        canvasContext.lineWidth = lineWidth;
-        canvasContext.strokeStyle = this.color;
-        canvasContext.stroke();
-    }
-
-    // Determine if we should draw a line or leave a gap
-    lineState() {
-        if (this.gapFrequencyCounter > this.gapFrequency) {
-            if (this.gapSizeCounter > this.gapSize) {
-                const settings = GameSettings.difficultySettings[GameSettings.difficulty];
-                const minGap = settings.gapFrequency ? settings.gapFrequency[0] : 50;
-                const maxGap = settings.gapFrequency ? settings.gapFrequency[1] : 80;
-                
-                this.gapFrequency = Math.random() * (maxGap - minGap) + minGap;
-                this.gapSize = Math.random() * 10 + 10;
-                this.gapFrequencyCounter = 0;
-                this.gapSizeCounter = 0;
+    
+    // Update gap state and manage gap arrays
+    updateGapState(newPos) {
+        if (this.inGap) {
+            // We're in a gap, add position to gap array
+            this.gapArray.push(newPos);
+            
+            // Decrement gap counter
+            this.gapCounter--;
+            
+            // Check if we're done with this gap
+            if (this.gapCounter <= 0) {
+                this.inGap = false;
+                this.nextGapIn = this.calculateNextGapInterval();
             }
-            this.gapSizeCounter++;
-            return false;
-        }
-        else {
-            this.gapFrequencyCounter++;
-            return true;
+        } else {
+            // We're not in a gap, decrement counter to next gap
+            this.nextGapIn--;
+            
+            // Check if it's time to start a new gap
+            if (this.nextGapIn <= 0) {
+                this.inGap = true;
+                this.gapCounter = this.calculateGapSize();
+                this.gapArray.push(newPos); // Add first position of the gap
+            }
         }
     }
 
-    // Check for collisions with walls or other players
-    checkCollision(players) {
-        // Check collisions with other players
-        for (const player of players) {
-            // Loop for every item in the player's position array
-            for (let i = 0; i < player.arrayOfPos.length; i++) {
-                // Skip checking very recent positions to avoid self-collision
-                if (player === this && i >= player.arrayOfPos.length - lineWidth - 1) {
-                    continue;
+    // Update the collision grid for faster collision detection
+    updateCollisionGrid() {
+        const frameCounter = window.frameCounter || 0;
+        
+        // Only rebuild the grid occasionally to reduce overhead
+        if (frameCounter - this.lastGridUpdateTime < 10 && Object.keys(this.collisionGrid).length > 0) {
+            return;
+        }
+        
+        // Clear the existing grid
+        this.collisionGrid = {};
+        
+        // Use spatial partitioning for faster collision detection
+        const gridSize = this.gridCellSize;
+        
+        // Calculate number of cells in grid (based on canvas size)
+        const canvas = document.getElementById('gameCanvas');
+        const gridWidth = Math.ceil(canvas.width / gridSize);
+        const gridHeight = Math.ceil(canvas.height / gridSize);
+        
+        // For loop is faster than forEach for large arrays
+        for (let i = 0; i < this.arrayOfPos.length; i++) {
+            // Skip positions for optimization (check every 3rd point except recent trail)
+            if (i % 3 !== 0 && i < this.arrayOfPos.length - 15) continue;
+            
+            const pos = this.arrayOfPos[i];
+            
+            // Skip positions that are in gaps
+            let isInGap = this.isPositionInGap(pos);
+            
+            if (isInGap) continue;
+            
+            // Calculate grid cell
+            const gridX = Math.floor(pos[0] / gridSize);
+            const gridY = Math.floor(pos[1] / gridSize);
+            
+            // Validate grid bounds
+            if (gridX >= 0 && gridX < gridWidth && gridY >= 0 && gridY < gridHeight) {
+                const cellKey = `${gridX},${gridY}`;
+                
+                if (!this.collisionGrid[cellKey]) {
+                    this.collisionGrid[cellKey] = [];
                 }
                 
-                // Line head is position of this player's head
-                let lineHead = this.arrayOfPos[this.arrayOfPos.length - 1];
-                // Line hit is the current position being checked
-                let lineHit = player.arrayOfPos[i];
+                this.collisionGrid[cellKey].push(i);
+            }
+        }
+        
+        this.lastGridUpdateTime = frameCounter;
+    }
+    
+    // Helper to check if a position is in a gap
+    isPositionInGap(pos) {
+        if (!this.gapArray || this.gapArray.length === 0) return false;
+        
+        for (let i = 0; i < this.gapArray.length; i++) {
+            const gapPos = this.gapArray[i];
+            if (Math.abs(gapPos[0] - pos[0]) < 1 && Math.abs(gapPos[1] - pos[1]) < 1) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
 
-                // Check for collision
-                if (Math.abs(lineHead[0] - lineHit[0]) < lineWidth * 0.8 && 
-                    Math.abs(lineHead[1] - lineHit[1]) < lineWidth * 0.8) {
-                    // Collision detected
+    // Check if the current position should be drawn or is in a gap
+    isInGapNow() {
+        return this.inGap;
+    }
+
+    // Check for collisions with own trail and other players - optimized
+    checkCollision(players) {
+        const head = this.arrayOfPos[this.arrayOfPos.length - 1];
+        
+        // Hard-coded values are faster than property lookups
+        const lineWidthHalf = this.lineWidth * 0.8;
+        
+        // Get canvas dimensions
+        const canvas = document.getElementById('gameCanvas');
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        
+        // Check wall collisions first (fastest check)
+        if (head[0] <= lineWidthHalf || 
+            head[0] >= canvasWidth - lineWidthHalf ||
+            head[1] <= lineWidthHalf || 
+            head[1] >= canvasHeight - lineWidthHalf) {
+            return true;
+        }
+        
+        // Grid-based collision detection
+        const gridSize = this.gridCellSize;
+        const gridX = Math.floor(head[0] / gridSize);
+        const gridY = Math.floor(head[1] / gridSize);
+
+        // Check neighboring cells
+        const cellsToCheck = [
+            `${gridX},${gridY}`,         // Current cell
+            `${gridX-1},${gridY}`,       // Left
+            `${gridX+1},${gridY}`,       // Right
+            `${gridX},${gridY-1}`,       // Top
+            `${gridX},${gridY+1}`,       // Bottom
+            `${gridX-1},${gridY-1}`,     // Top-left
+            `${gridX+1},${gridY-1}`,     // Top-right
+            `${gridX-1},${gridY+1}`,     // Bottom-left
+            `${gridX+1},${gridY+1}`      // Bottom-right
+        ];
+        
+        // Use a for loop instead of forEach for faster execution
+        for (let p = 0; p < players.length; p++) {
+            const player = players[p];
+            
+            // Skip if player has no collision grid yet
+            if (!player.collisionGrid || Object.keys(player.collisionGrid).length === 0) {
+                continue;
+            }
+            
+            // Skip the most recent positions of own trail
+            const safetyBuffer = player === this ? 15 : 0;
+            
+            // Cache the head x and y for performance
+            const headX = head[0];
+            const headY = head[1];
+            
+            // Check each cell that might contain collisions
+            for (let c = 0; c < cellsToCheck.length; c++) {
+                const cellKey = cellsToCheck[c];
+                const indices = player.collisionGrid[cellKey];
+                
+                if (!indices) continue;
+                
+                // Check positions in this cell
+                for (let i = 0; i < indices.length; i++) {
+                    const idx = indices[i];
+                    
+                    // Skip recent positions of own trail
+                    if (player === this && idx > player.arrayOfPos.length - safetyBuffer) {
+                        continue;
+                    }
+                    
+                    const pos = player.arrayOfPos[idx];
+                    
+                    // Skip if this position is in a gap
+                    if (player.isPositionInGap(pos)) continue;
+                    
+                    // Simple box collision check - faster than using Math.abs()
+                    const dx = headX - pos[0];
+                    const dy = headY - pos[1];
+                    if (dx > -lineWidthHalf && dx < lineWidthHalf && 
+                        dy > -lineWidthHalf && dy < lineWidthHalf) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        // If grid not updated yet, do a traditional check with sampling
+        for (let p = 0; p < players.length; p++) {
+            const player = players[p];
+            
+            // Skip if player has collision grid or if already checked
+            if (player.collisionGrid && Object.keys(player.collisionGrid).length > 0) {
+                continue;
+            }
+            
+            // Skip the most recent positions of own trail
+            const safetyBuffer = player === this ? 15 : 0;
+            
+            // Use sampling for performance
+            const samplingRate = Math.max(1, Math.floor(player.arrayOfPos.length / 200));
+            
+            for (let i = 0; i < player.arrayOfPos.length - safetyBuffer; i += samplingRate) {
+                const pos = player.arrayOfPos[i];
+                
+                // Skip if this position is in a gap
+                if (player.isPositionInGap(pos)) continue;
+                
+                // Check collision
+                const dx = head[0] - pos[0];
+                const dy = head[1] - pos[1];
+                if (dx > -lineWidthHalf && dx < lineWidthHalf && 
+                    dy > -lineWidthHalf && dy < lineWidthHalf) {
                     return true;
                 }
             }
         }
         
-        // Check walls - if player gets outside of the canvas, collision is registered
-        const head = this.arrayOfPos[this.arrayOfPos.length - 1];
-        if (head[0] <= lineWidth * 0.8 || 
-            head[0] >= canvas.width - lineWidth * 0.8 ||
-            head[1] <= lineWidth * 0.8 || 
-            head[1] >= canvas.height - lineWidth * 0.8) {
-            return true;
-        }
-        
         return false; // No collision
     }
+    
+    // Get the current heading direction in radians
+    getHeadingAngle() {
+        const len = this.arrayOfPos.length;
+        if (len < 2) return 0;
+        
+        const head = this.arrayOfPos[len - 1];
+        const prev = this.arrayOfPos[len - 2];
+        
+        return Math.atan2(head[1] - prev[1], head[0] - prev[0]);
+    }
+    
+    // Get serializable data for web workers
+    getSerializableData() {
+        return {
+            arrayOfPos: this.arrayOfPos,
+            gapArray: this.gapArray,
+            speed: this.speed,
+            isHuman: this.isHuman,
+            index: this.index,
+            inGap: this.inGap
+        };
+    }
+}
 
-    // Display the line with gaps
-    display() {
-        if (!this.lineState()) {
-            if (this.arrayOfPos.length > 2) {
-                this.arrayOfPos[this.arrayOfPos.length - 3] = this.gapStart;
-
-                if (!(this.gapArray[this.gapArray.length - 1] == this.gapStart)) {
-                    this.gapArray.push(this.gapStart);
+// Add static display method to Player class
+Player.displayPlayers = function(players) {
+    const canvas = document.getElementById('gameCanvas');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Clear the canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw each player
+    for (const player of players) {
+        if (!player || !player.arrayOfPos || player.arrayOfPos.length < 2) continue;
+        
+        ctx.lineWidth = player.lineWidth || 10;
+        ctx.strokeStyle = player.color;
+        ctx.lineCap = "round";
+        
+        // Draw in segments, skipping gaps
+        let drawingPath = false;
+        
+        for (let i = 0; i < player.arrayOfPos.length - 1; i++) {
+            const pos = player.arrayOfPos[i];
+            const nextPos = player.arrayOfPos[i + 1];
+            
+            // Check if this position or next position is in a gap
+            const isPosInGap = player.isPositionInGap(pos);
+            const isNextPosInGap = player.isPositionInGap(nextPos);
+            
+            if (!isPosInGap && !isNextPosInGap) {
+                // If not drawing, start a new path
+                if (!drawingPath) {
+                    ctx.beginPath();
+                    ctx.moveTo(pos[0], pos[1]);
+                    drawingPath = true;
+                }
+                
+                // Continue the path
+                ctx.lineTo(nextPos[0], nextPos[1]);
+            } else {
+                // If we were drawing, end the path
+                if (drawingPath) {
+                    ctx.stroke();
+                    drawingPath = false;
                 }
             }
         }
-        else {
-            this.gapStart = [this.arrayOfPos[this.arrayOfPos.length - 1][0], 
-                            this.arrayOfPos[this.arrayOfPos.length - 1][1]];
-        }
-
-        // Draw the line segments
-        for (let j = 0; j < this.arrayOfPos.length - 2; j++) {
-            if (!(this.gapArray.includes(this.arrayOfPos[j]))) {
-                this.line(this.arrayOfPos[j][0], this.arrayOfPos[j][1], 
-                         this.arrayOfPos[j + 1][0], this.arrayOfPos[j + 1][1]);
-            }
-        }
         
-        // Draw the head
-        if (this.arrayOfPos.length >= 2) {
-            const lastIdx = this.arrayOfPos.length - 1;
-            this.line(
-                this.arrayOfPos[lastIdx-1][0], 
-                this.arrayOfPos[lastIdx-1][1], 
-                this.arrayOfPos[lastIdx][0], 
-                this.arrayOfPos[lastIdx][1]
-            );
+        // Finish any remaining path
+        if (drawingPath) {
+            ctx.stroke();
         }
     }
-    
-    // Static method to display all players
-    static displayPlayers(players) {
-        canvasContext.clearRect(0, 0, canvas.width, canvas.height);
-
-        for (const player of players) {
-            player.display();
-        }
-    }
-}
+};

@@ -236,6 +236,53 @@
         #resetGameBtn {
             background-color: #F44336;
         }
+        
+        #performance-options {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 5px;
+        }
+        
+        #performance-options label {
+            margin-right: 15px;
+            font-size: 14px;
+        }
+
+        #fpsDisplay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .game-features {
+            margin-top: 15px;
+            text-align: left;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .game-features h3 {
+            margin-top: 0;
+            text-align: center;
+        }
+        
+        .game-features ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        
+        .game-features li {
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
@@ -311,10 +358,37 @@
             <button id="hardBtn" class="difficulty-btn">Hard</button>
         </div>
         
+        <div id="performance-options">
+            <h3>Performance Options</h3>
+            <label>
+                <input type="checkbox" id="useMultithreading" checked>
+                Use Multithreading
+            </label>
+            <label>
+                <input type="checkbox" id="useOptimizedRendering" checked>
+                Optimized Rendering
+            </label>
+            <label>
+                <input type="checkbox" id="showFPS" checked>
+                Show FPS
+            </label>
+        </div>
+        
+        <div class="game-features">
+            <h3>Game Features</h3>
+            <ul>
+                <li><strong>Random Gaps:</strong> Players leave random gaps in their trails</li>
+                <li><strong>Dynamic AI:</strong> AI difficulty adjusts based on player count</li>
+                <li><strong>Multiple Rounds:</strong> Play multiple rounds to determine the overall winner</li>
+                <li><strong>Press F:</strong> Toggle FPS display during gameplay</li>
+            </ul>
+        </div>
+        
         <button id="startGameBtn" class="start-game-btn">Start Game</button>
     </div>
     
     <canvas id="gameCanvas" width="800" height="800"></canvas>
+    <div id="fpsDisplay">FPS: 0</div>
     
     <div id="gameOver">
         <div id="gameOverText">Round Over!</div>
@@ -336,8 +410,12 @@
         <button id="resetGameBtn">New Game</button>
     </div>
 
-    <script src="Player.js"></script>
-    <script src="GameSettings.js"></script>
-    <script src="Game.js"></script>
+    <!-- Core Game Scripts -->
+    <script src="SpatialGrid.js" defer></script>
+    <script src="Renderer.js" defer></script>
+    <script src="Player.js" defer></script>
+    <script src="GameSettings.js" defer></script>
+    <script src="GameEngine.js" defer></script>
+    <script src="main.js" defer></script>
 </body>
 </html>

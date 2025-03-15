@@ -1,21 +1,22 @@
-// Game.js - Main game logic with multiplayer support
+// Game.js - Fixed version that resolves initialization issues
 const canvas = document.getElementById("gameCanvas");
 const canvasContext = canvas.getContext("2d");
 
 // Game state variables
-let speed = 2;
-let angleDelta = 4;
+let speed = 3; 
+let angleDelta = 6;
 let lineWidth = 10;
 let keyPressed = {};
 let players = [];
 let activePlayers = [];
 let lastFrameTimeMs = 0;
-let maxFPS = 30;
+let maxFPS = 60;
 let gameStarted = false;
 let aiSettings;
 let aiDecisionCounters = [];
-let lastAiMoves = [];
+let aiPathPlans = [];
 let finishOrder = [];
+let frameCounter = 0;
 
 // Initialize the game
 function initGame() {
@@ -26,23 +27,22 @@ function initGame() {
     activePlayers = [];
     keyPressed = {};
     finishOrder = [];
+    frameCounter = 0;
+    aiPathPlans = [];
     
     // Apply difficulty settings
     aiSettings = GameSettings.applySettings();
-    console.log("Applied game settings:", aiSettings);
     
     // Get enabled players from settings
     const enabledPlayers = GameSettings.getEnabledPlayers();
     const playerCount = enabledPlayers.length;
-    console.log("Enabled players:", playerCount);
     
     // Reset AI tracking arrays
     aiDecisionCounters = Array(playerCount).fill(0);
-    lastAiMoves = Array(playerCount).fill(0);
+    aiPathPlans = Array(playerCount).fill(null);
     
     // Create players
     createPlayers(enabledPlayers);
-    console.log("Players created:", players.length);
     
     // Set up key event listeners
     window.onkeydown = function (e) { keyPressed[e.keyCode] = true; }
@@ -50,13 +50,19 @@ function initGame() {
     
     // Start game loop
     gameStarted = true;
+    lastFrameTimeMs = performance.now();
     requestAnimationFrame(gameLoop);
-    console.log("Game loop started");
+    
+    console.log("Game initialized with", playerCount, "players");
 }
 
 // Create players based on settings
 function createPlayers(enabledPlayers) {
     const playerCount = enabledPlayers.length;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    console.log("Creating", playerCount, "players");
     
     // Create players in a circular arrangement
     enabledPlayers.forEach((player, index) => {
@@ -64,23 +70,16 @@ function createPlayers(enabledPlayers) {
         const angle = (index / playerCount) * Math.PI * 2;
         const radius = canvas.width * 0.35; // Position at 35% from center to edge
         
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        
         const startX = centerX + Math.cos(angle) * radius;
         const startY = centerY + Math.sin(angle) * radius;
+        
+        // Calculate vector pointing TOWARD center
+        const dirX = centerX - startX;
+        const dirY = centerY - startY;
         
         // Create the player
         const isHuman = player.type === 'human';
         const playerSpeed = isHuman ? aiSettings.playerSpeed : aiSettings.aiSpeed;
-        
-        console.log(`Creating player ${index+1}:`, {
-            x: startX,
-            y: startY,
-            color: player.color,
-            speed: playerSpeed,
-            isHuman: isHuman
-        });
         
         const newPlayer = new Player(
             startX, 
@@ -92,6 +91,9 @@ function createPlayers(enabledPlayers) {
             player.controls
         );
         
+        // Set initial direction vector pointed toward center
+        newPlayer.initialDirection(dirX, dirY);
+        
         // Add to players array
         players.push(newPlayer);
         activePlayers.push(index);
@@ -100,24 +102,25 @@ function createPlayers(enabledPlayers) {
 
 // Main game loop
 function gameLoop(timestamp) {
-    if (!gameStarted) {
-        console.log("Game not started, exiting game loop");
-        return;
-    }
+    if (!gameStarted) return;
+    
+    // Calculate delta time
+    const elapsed = timestamp - lastFrameTimeMs;
     
     // Frame rate limiting
-    if (timestamp < lastFrameTimeMs + (1000 / maxFPS)) {
+    if (elapsed < 1000 / maxFPS) {
         requestAnimationFrame(gameLoop);
         return;
     }
+    
     lastFrameTimeMs = timestamp;
     
     // Update game state
     updateGame();
+    frameCounter++;
     
     // Check if game is over (0 or 1 player left)
     if (activePlayers.length <= 1) {
-        console.log("Game ending - only", activePlayers.length, "players left");
         endRound();
         return;
     }
@@ -145,17 +148,21 @@ function updateGame() {
             
             player.addPosition(playerAngle);
         } else {
-            // Handle AI player
+            // Handle AI player with reduced calculation frequency
             aiDecisionCounters[playerIdx]++;
-            let aiAngle = lastAiMoves[playerIdx];
             
-            // Only make AI decisions at intervals based on reaction time
-            if (aiDecisionCounters[playerIdx] >= aiSettings.aiReactionTime) {
-                aiAngle = computerMove(playerIdx);
-                lastAiMoves[playerIdx] = aiAngle;
+            // Only recalculate AI decisions at specified intervals based on difficulty
+            const recalcInterval = aiSettings.aiReactionTime * 10;
+            
+            if (aiDecisionCounters[playerIdx] >= recalcInterval) {
+                // Time to recalculate - create new long-term path plan
+                const pathPlan = calculateAIPathPlan(playerIdx);
+                aiPathPlans[playerIdx] = pathPlan;
                 aiDecisionCounters[playerIdx] = 0;
             }
             
+            // Follow the pre-calculated path plan
+            let aiAngle = followPathPlan(playerIdx);
             player.addPosition(aiAngle);
         }
     });
@@ -203,96 +210,427 @@ function endRound() {
     window.showRoundOver(finishOrder);
 }
 
-// AI logic
-function computerMove(playerIdx) {
+// Follow the pre-calculated path plan for an AI
+function followPathPlan(playerIdx) {
     const player = players[playerIdx];
+    const plan = aiPathPlans[playerIdx];
     
-    // Apply randomness based on difficulty
-    if (Math.random() < aiSettings.aiRandomness) {
-        return Math.random() < 0.5 ? angleDelta : -angleDelta;
-    }
-    
-    // Store original positions to restore after simulation
-    const restorePositions = players.map(p => p.arrayOfPos.slice());
-    
-    // Define directions to test
-    const directions = [-angleDelta, 0, angleDelta];
-    let bestDirection = 0;
-    let bestScore = -1;
-    
-    // Test each direction
-    for (const direction of directions) {
-        let score = evaluateMove(playerIdx, direction);
-        if (score > bestScore) {
-            bestScore = score;
-            bestDirection = direction;
-        }
-        
-        // Restore positions for next simulation
-        players.forEach((p, idx) => {
-            p.arrayOfPos = restorePositions[idx].slice();
-        });
-    }
-    
-    return bestDirection;
-}
-
-// Simple wall avoidance logic for AI
-function addAvoidanceLogic(playerIdx) {
-    const player = players[playerIdx];
-    const pos = player.arrayOfPos[player.arrayOfPos.length - 1];
-    
-    // Wall detection threshold
-    const wallThreshold = 100;
-    
-    // Check for nearby walls
-    const nearLeftWall = pos[0] < wallThreshold;
-    const nearRightWall = pos[0] > canvas.width - wallThreshold;
-    const nearTopWall = pos[1] < wallThreshold;
-    const nearBottomWall = pos[1] > canvas.height - wallThreshold;
-    
-    // If near any wall, adjust direction to move away
-    if (nearLeftWall) {
-        return angleDelta; // Turn right to avoid left wall
-    } else if (nearRightWall) {
-        return -angleDelta; // Turn left to avoid right wall
-    } else if (nearTopWall || nearBottomWall) {
-        return pos[0] < canvas.width / 2 ? angleDelta : -angleDelta;
-    }
-    
-    return null; // No immediate wall avoidance needed
-}
-
-// Evaluate a potential move for an AI player (simplified)
-function evaluateMove(playerIdx, direction) {
-    let survivalFrames = 0;
-    const player = players[playerIdx];
-    const MAX_FRAMES = 30;
-    
-    // Simulate future moves
-    for (let i = 0; i < MAX_FRAMES; i++) {
-        // Move player in test direction
-        player.addPosition(direction);
-        
-        // Check if player would collide with anything
-        if (player.checkCollision(players)) {
-            break;
-        }
-        
-        survivalFrames++;
-    }
-    
-    return survivalFrames;
-}
-
-// Simple prediction of player direction
-function predictPlayerDirection(playerIdx) {
-    const player = players[playerIdx];
-    
-    if (player.arrayOfPos.length < 3) {
+    // If no plan exists or plan is complete, return 0 (straight)
+    if (!plan || plan.currentSegment >= plan.segments.length) {
         return 0;
     }
     
-    // For AI players, just continue in same direction most of the time
-    return lastAiMoves[playerIdx];
+    // Get current segment
+    const currentSegment = plan.segments[plan.currentSegment];
+    
+    // Get the step within the segment (based on reaction time)
+    const stepIndex = aiDecisionCounters[playerIdx] % currentSegment.length;
+    
+    // If we're at the end of the segment, move to next segment
+    if (stepIndex === currentSegment.length - 1) {
+        plan.currentSegment++;
+    }
+    
+    // Return the direction for this step
+    return currentSegment[stepIndex];
+}
+
+// Calculate a long-term path plan for an AI player
+function calculateAIPathPlan(playerIdx) {
+    const player = players[playerIdx];
+    
+    // First, check for immediate dangers that need quick response
+    const emergencyDirection = checkForEmergencies(player);
+    if (emergencyDirection !== null) {
+        // If there's an emergency, just return a simple plan to handle it
+        return {
+            segments: [[emergencyDirection]],
+            currentSegment: 0
+        };
+    }
+    
+    // Create a long-term path plan with segments
+    const pathPlan = {
+        segments: [],
+        currentSegment: 0
+    };
+    
+    // Split the long-term planning into segments
+    const segmentLength = Math.floor(60 / 8);
+    
+    // Store original state to restore later
+    const originalPositions = players.map(p => p.arrayOfPos.slice());
+    const originalGapArrays = players.map(p => p.gapArray.slice());
+    
+    // Current best directions for each segment
+    let bestDirections = [];
+    
+    // Evaluate and build the path plan
+    for (let segment = 0; segment < 8; segment++) {
+        // Directions to consider for this segment
+        const directions = segment === 0 ? 
+            [-angleDelta, -angleDelta/2, 0, angleDelta/2, angleDelta] : // More options for first segment
+            [0, -angleDelta/2, angleDelta/2]; // Fewer options for later segments
+        
+        let bestDirection = 0;
+        let bestScore = -1;
+        
+        // Evaluate each direction for this segment
+        for (const direction of directions) {
+            // Apply all previous segment directions first
+            for (let i = 0; i < bestDirections.length; i++) {
+                simulateMovement(player, bestDirections[i], segmentLength);
+            }
+            
+            // Now simulate this segment
+            const score = simulateSegment(player, direction, segmentLength);
+            
+            // Restore to position after previous segments
+            players.forEach((p, i) => {
+                p.arrayOfPos = originalPositions[i].slice();
+                p.gapArray = originalGapArrays[i].slice();
+            });
+            
+            // Apply all previous segment directions again
+            for (let i = 0; i < bestDirections.length; i++) {
+                simulateMovement(player, bestDirections[i], segmentLength);
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestDirection = direction;
+            }
+        }
+        
+        // Add the best direction for this segment
+        bestDirections.push(bestDirection);
+        
+        // Update the plan
+        pathPlan.segments.push(Array(segmentLength).fill(bestDirection));
+        
+        // Move player forward to prepare for next segment evaluation
+        simulateMovement(player, bestDirection, segmentLength);
+    }
+    
+    // Restore original positions
+    players.forEach((p, i) => {
+        p.arrayOfPos = originalPositions[i].slice();
+        p.gapArray = originalGapArrays[i].slice();
+    });
+    
+    return pathPlan;
+}
+
+// Check for emergency situations that need immediate response
+function checkForEmergencies(player) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    
+    // Get direction vector
+    const len = player.arrayOfPos.length;
+    if (len < 2) return null;
+    
+    const prev = player.arrayOfPos[len - 2];
+    const dirX = head[0] - prev[0];
+    const dirY = head[1] - prev[1];
+    
+    // Wall distances
+    const distLeft = head[0];
+    const distRight = canvas.width - head[0];
+    const distTop = head[1];
+    const distBottom = canvas.height - head[1];
+    
+    // Emergency threshold - if very close to a wall
+    const emergencyThreshold = 50;
+    
+    // If we're heading toward a wall that's too close, emergency turn
+    if (distLeft < emergencyThreshold && dirX < 0) {
+        return angleDelta; // Turn right
+    } else if (distRight < emergencyThreshold && dirX > 0) {
+        return -angleDelta; // Turn left
+    } else if (distTop < emergencyThreshold && dirY < 0) {
+        return (dirX > 0) ? -angleDelta : angleDelta; // Turn away from top
+    } else if (distBottom < emergencyThreshold && dirY > 0) {
+        return (dirX > 0) ? angleDelta : -angleDelta; // Turn away from bottom
+    }
+    
+    // Check for very close trails (emergency avoidance)
+    const headingAngle = getHeadingAngle(player);
+    const veryCloseDistance = 30;
+    
+    // Check directly ahead
+    const aheadX = head[0] + Math.cos(headingAngle) * veryCloseDistance;
+    const aheadY = head[1] + Math.sin(headingAngle) * veryCloseDistance;
+    
+    for (const otherPlayer of players) {
+        // Get only recently added trail segments for speed
+        const recentSegments = otherPlayer.arrayOfPos.slice(-200);
+        
+        for (const pos of recentSegments) {
+            // Skip if position is in a gap
+            const isInGap = otherPlayer.gapArray.some(gapPos => 
+                Math.abs(gapPos[0] - pos[0]) < 1 && 
+                Math.abs(gapPos[1] - pos[1]) < 1
+            );
+            
+            if (isInGap) continue;
+            
+            // Check distance to upcoming position
+            const dist = Math.sqrt(
+                Math.pow(aheadX - pos[0], 2) + 
+                Math.pow(aheadY - pos[1], 2)
+            );
+            
+            if (dist < lineWidth * 2) {
+                // Emergency! Turn in the direction with more space
+                return findEmergencyEscapeDirection(player);
+            }
+        }
+    }
+    
+    return null; // No emergency
+}
+
+// Find the best direction to escape in an emergency
+function findEmergencyEscapeDirection(player) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    const headingAngle = getHeadingAngle(player);
+    
+    // Check left and right
+    const leftAngle = normalizeAngle(headingAngle - Math.PI/2);
+    const rightAngle = normalizeAngle(headingAngle + Math.PI/2);
+    
+    let leftSpace = 0;
+    let rightSpace = 0;
+    
+    // Check distance in each direction
+    for (let dist = 10; dist <= 100; dist += 10) {
+        // Left check
+        const leftX = head[0] + Math.cos(leftAngle) * dist;
+        const leftY = head[1] + Math.sin(leftAngle) * dist;
+        
+        // Right check
+        const rightX = head[0] + Math.cos(rightAngle) * dist;
+        const rightY = head[1] + Math.sin(rightAngle) * dist;
+        
+        // Check if positions are clear
+        let leftClear = true;
+        let rightClear = true;
+        
+        // Wall check
+        if (leftX <= lineWidth || leftX >= canvas.width - lineWidth ||
+            leftY <= lineWidth || leftY >= canvas.height - lineWidth) {
+            leftClear = false;
+        }
+        
+        if (rightX <= lineWidth || rightX >= canvas.width - lineWidth ||
+            rightY <= lineWidth || rightY >= canvas.height - lineWidth) {
+            rightClear = false;
+        }
+        
+        // If both directions are blocked, break
+        if (!leftClear && !rightClear) break;
+        
+        // Update space measurements
+        if (leftClear) leftSpace = dist;
+        if (rightClear) rightSpace = dist;
+    }
+    
+    // Choose direction with more space
+    return leftSpace > rightSpace ? -angleDelta : angleDelta;
+}
+
+// Simulate moving in a segment
+function simulateSegment(player, direction, steps) {
+    let score = 0;
+    
+    // Simulate movement
+    simulateMovement(player, direction, steps);
+    
+    // Score based on final position
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    
+    // Check if there was a collision
+    if (player.checkCollision(players)) {
+        return -100; // Very bad score for collision
+    }
+    
+    // Calculate space around the player
+    const spaceScore = calculateSpaceAround(player);
+    score += spaceScore;
+    
+    // Bonus for staying away from walls
+    const wallBonus = calculateWallDistanceBonus(player);
+    score += wallBonus;
+    
+    // Bonus for being near the center
+    const centerBonus = calculateCenterBonus(player);
+    score += centerBonus;
+    
+    return score;
+}
+
+// Simulate movement for a number of steps
+function simulateMovement(player, direction, steps) {
+    const angle = direction * Math.PI / 180;
+    
+    for (let i = 0; i < steps; i++) {
+        // Get last two positions
+        const lastIdx = player.arrayOfPos.length - 1;
+        const lastPos = player.arrayOfPos[lastIdx];
+        const prevPos = player.arrayOfPos[lastIdx - 1];
+        
+        // Direction vector
+        const xPosDelta = (lastPos[0] - prevPos[0]);
+        const yPosDelta = (lastPos[1] - prevPos[1]);
+        
+        // Rotation calculation
+        const xPos = xPosDelta * Math.cos(angle) - yPosDelta * Math.sin(angle);
+        const yPos = xPosDelta * Math.sin(angle) + yPosDelta * Math.cos(angle);
+        
+        // Add new position
+        const newPos = [
+            lastPos[0] + xPos,
+            lastPos[1] + yPos
+        ];
+        player.arrayOfPos.push(newPos);
+    }
+}
+
+// Get heading angle helper function
+function getHeadingAngle(player) {
+    const len = player.arrayOfPos.length;
+    if (len < 2) return 0;
+    
+    const head = player.arrayOfPos[len - 1];
+    const prev = player.arrayOfPos[len - 2];
+    
+    return Math.atan2(head[1] - prev[1], head[0] - prev[0]);
+}
+
+// Calculate space around the player (simplified for performance)
+function calculateSpaceAround(player) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    const headingAngle = getHeadingAngle(player);
+    
+    // Check in 4 directions (ahead, right, back, left)
+    const angles = [
+        headingAngle,
+        normalizeAngle(headingAngle + Math.PI/2),
+        normalizeAngle(headingAngle + Math.PI),
+        normalizeAngle(headingAngle - Math.PI/2)
+    ];
+    
+    let totalSpace = 0;
+    
+    // Check distance in each direction
+    for (const angle of angles) {
+        let maxDistance = 0;
+        
+        // Check at increasing distances
+        for (let dist = 20; dist <= 120; dist += 20) {
+            const checkX = head[0] + Math.cos(angle) * dist;
+            const checkY = head[1] + Math.sin(angle) * dist;
+            
+            // Check for walls
+            if (checkX <= lineWidth || checkX >= canvas.width - lineWidth ||
+                checkY <= lineWidth || checkY >= canvas.height - lineWidth) {
+                maxDistance = dist;
+                break;
+            }
+            
+            // Very simple collision check for efficiency
+            let collision = false;
+            
+            // Check with other players using spatial sampling
+            for (const otherPlayer of players) {
+                // Sample trail at increasing intervals
+                const samplingRate = Math.max(1, Math.floor(otherPlayer.arrayOfPos.length / 100));
+                
+                for (let i = 0; i < otherPlayer.arrayOfPos.length; i += samplingRate) {
+                    const pos = otherPlayer.arrayOfPos[i];
+                    
+                    // Skip if position is in a gap
+                    const isInGap = otherPlayer.gapArray.some(gapPos => 
+                        Math.abs(gapPos[0] - pos[0]) < 1 && 
+                        Math.abs(gapPos[1] - pos[1]) < 1
+                    );
+                    
+                    if (isInGap) continue;
+                    
+                    // Fast distance check
+                    const dx = checkX - pos[0];
+                    const dy = checkY - pos[1];
+                    const distSquared = dx * dx + dy * dy;
+                    
+                    if (distSquared < lineWidth * lineWidth * 1.5) {
+                        collision = true;
+                        break;
+                    }
+                }
+                
+                if (collision) break;
+            }
+            
+            if (collision) {
+                maxDistance = dist;
+                break;
+            }
+            
+            // If we reach maximum distance without collision
+            if (dist === 120) {
+                maxDistance = 120;
+            }
+        }
+        
+        totalSpace += maxDistance;
+    }
+    
+    // Weight ahead direction more heavily
+    return totalSpace / 3;
+}
+
+// Calculate bonus for staying away from walls
+function calculateWallDistanceBonus(player) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    
+    // Wall distances
+    const distLeft = head[0];
+    const distRight = canvas.width - head[0];
+    const distTop = head[1];
+    const distBottom = canvas.height - head[1];
+    
+    // Find minimum distance to any wall
+    const minWallDist = Math.min(distLeft, distRight, distTop, distBottom);
+    
+    // Calculate bonus (higher when further from walls)
+    return Math.min(30, minWallDist / 5);
+}
+
+// Calculate bonus for staying near center
+function calculateCenterBonus(player) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    
+    // Distance from center
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const distFromCenter = Math.sqrt(
+        Math.pow(head[0] - centerX, 2) + 
+        Math.pow(head[1] - centerY, 2)
+    );
+    
+    // Maximum distance from center (corner to center)
+    const maxDist = Math.sqrt(
+        Math.pow(canvas.width/2, 2) + 
+        Math.pow(canvas.height/2, 2)
+    );
+    
+    // Calculate bonus (higher when closer to center)
+    return 25 * (1 - distFromCenter / maxDist);
+}
+
+// Normalize angle to be between -PI and PI
+function normalizeAngle(angle) {
+    while (angle > Math.PI) angle -= 2 * Math.PI;
+    while (angle < -Math.PI) angle += 2 * Math.PI;
+    return angle;
 }
