@@ -7,14 +7,18 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    min-height: 100vh; /* Changed from height to min-height */
     flex-direction: column;
+    overflow-y: auto; /* Added to ensure scrolling works */
+    padding-top: 20px; /* Added padding at top */
+    padding-bottom: 20px; /* Added padding at bottom */
 }
 
 canvas {
     background-color: black;
     border-radius: 8px;
     display: none;
+    margin-top: 20px; /* Added margin at top */
 }
 
 #gameTitle {
@@ -22,6 +26,7 @@ canvas {
     margin-bottom: 30px;
     color: #4CAF50;
     text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+    margin-top: 20px; /* Added margin at top */
 }
 
 #selectionScreen {
@@ -32,6 +37,9 @@ canvas {
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
     width: 600px;
     margin-top: 20px;
+    margin-bottom: 20px; /* Added margin at bottom */
+    max-height: 80vh; /* Limit height */
+    overflow-y: auto; /* Make it scrollable if needed */
 }
 
 .difficulty-btn {
@@ -177,7 +185,7 @@ input:checked + .player-slider:before {
 }
 
 #gameOver {
-    position: absolute;
+    position: fixed; /* Changed from absolute to fixed */
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
@@ -187,6 +195,7 @@ input:checked + .player-slider:before {
     text-align: center;
     display: none;
     width: 400px;
+    z-index: 100; /* Added to ensure it appears on top */
 }
 
 #gameOverText {
@@ -244,7 +253,7 @@ input:checked + .player-slider:before {
 }
 
 #fpsDisplay {
-    position: absolute;
+    position: fixed; /* Changed from absolute to fixed */
     top: 10px;
     left: 10px;
     background-color: rgba(0, 0, 0, 0.5);
@@ -253,6 +262,7 @@ input:checked + .player-slider:before {
     border-radius: 3px;
     font-family: monospace;
     font-size: 14px;
+    z-index: 10; /* Added to ensure it appears above the game */
 }
 
 .game-features {
