@@ -215,11 +215,11 @@ class Player {
         }
         
         // Grid-based collision detection
-        const gridSize = this.gridCellSize;
+        const gridSize = this.gridCellSize || (this.lineWidth * 3);
         const gridX = Math.floor(head[0] / gridSize);
         const gridY = Math.floor(head[1] / gridSize);
 
-        // Check neighboring cells
+        // Check neighboring cells - use a larger area for more thorough checking
         const cellsToCheck = [
             `${gridX},${gridY}`,         // Current cell
             `${gridX-1},${gridY}`,       // Left
@@ -229,29 +229,42 @@ class Player {
             `${gridX-1},${gridY-1}`,     // Top-left
             `${gridX+1},${gridY-1}`,     // Top-right
             `${gridX-1},${gridY+1}`,     // Bottom-left
-            `${gridX+1},${gridY+1}`      // Bottom-right
+            `${gridX+1},${gridY+1}`,     // Bottom-right
+            // Extended neighborhood for more thorough checking
+            `${gridX-2},${gridY}`,       // Far Left
+            `${gridX+2},${gridY}`,       // Far Right
+            `${gridX},${gridY-2}`,       // Far Top
+            `${gridX},${gridY+2}`,       // Far Bottom
+            `${gridX-2},${gridY-1}`,     // Left Top
+            `${gridX-2},${gridY+1}`,     // Left Bottom
+            `${gridX+2},${gridY-1}`,     // Right Top
+            `${gridX+2},${gridY+1}`,     // Right Bottom
+            `${gridX-1},${gridY-2}`,     // Top Left
+            `${gridX+1},${gridY-2}`,     // Top Right
+            `${gridX-1},${gridY+2}`,     // Bottom Left
+            `${gridX+1},${gridY+2}`      // Bottom Right
         ];
+        
+        // Cache the head x and y for performance
+        const headX = head[0];
+        const headY = head[1];
         
         // Use a for loop instead of forEach for faster execution
         for (let p = 0; p < players.length; p++) {
             const player = players[p];
             
-            // Skip if player has no collision grid yet
+            // Skip if player has no collision grid yet and has few points
             if (!player.collisionGrid || Object.keys(player.collisionGrid).length === 0) {
-                continue;
+                if (player.arrayOfPos.length < 10) continue;
             }
             
             // Skip the most recent positions of own trail
             const safetyBuffer = player === this ? 15 : 0;
             
-            // Cache the head x and y for performance
-            const headX = head[0];
-            const headY = head[1];
-            
             // Check each cell that might contain collisions
             for (let c = 0; c < cellsToCheck.length; c++) {
                 const cellKey = cellsToCheck[c];
-                const indices = player.collisionGrid[cellKey];
+                const indices = player.collisionGrid ? player.collisionGrid[cellKey] : null;
                 
                 if (!indices) continue;
                 
@@ -269,11 +282,15 @@ class Player {
                     // Skip if this position is in a gap
                     if (player.isPositionInGap(pos)) continue;
                     
-                    // Simple box collision check - faster than using Math.abs()
+                    // More precise collision detection - use actual line width
                     const dx = headX - pos[0];
                     const dy = headY - pos[1];
-                    if (dx > -lineWidthHalf && dx < lineWidthHalf && 
-                        dy > -lineWidthHalf && dy < lineWidthHalf) {
+                    
+                    // Use squared distance for performance (avoiding square root)
+                    const distanceSquared = dx*dx + dy*dy;
+                    const collisionThreshold = lineWidthHalf * lineWidthHalf;
+                    
+                    if (distanceSquared <= collisionThreshold) {
                         return true;
                     }
                 }
@@ -304,8 +321,12 @@ class Player {
                 // Check collision
                 const dx = head[0] - pos[0];
                 const dy = head[1] - pos[1];
-                if (dx > -lineWidthHalf && dx < lineWidthHalf && 
-                    dy > -lineWidthHalf && dy < lineWidthHalf) {
+                
+                // Use squared distance for performance
+                const distanceSquared = dx*dx + dy*dy;
+                const collisionThreshold = lineWidthHalf * lineWidthHalf;
+                
+                if (distanceSquared <= collisionThreshold) {
                     return true;
                 }
             }

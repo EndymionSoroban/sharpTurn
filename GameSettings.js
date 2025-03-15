@@ -39,33 +39,42 @@ const GameSettings = {
     // Difficulty-specific parameters
     difficultySettings: {
         easy: {
-            aiLookAhead: 30,           // How many frames ahead the AI looks
-            aiAggressiveness: 0.1,      // How aggressively AI tries to target player
-            aiRandomness: 0.1,          // Chance of making random moves
-            aiReactionTime: 5,          // Frames between AI decisions (higher = slower)
-            playerSpeed: 2,             // Player movement speed
-            aiSpeed: 1.8,               // AI movement speed
-            angleDelta: 3,              // Turn rate (degrees)
+            // AI behavior parameters (consistent across difficulties)
+            aiLookAhead: 50,           // How many frames ahead the AI looks
+            aiAggressiveness: 0.2,      // How aggressively AI tries to target player
+            aiRandomness: 0.05,         // Chance of making random moves
+            aiReactionTime: 2,          // Frames between AI decisions (faster reaction time for better obstacle avoidance)
+            
+            // Speed parameters (varies by difficulty)
+            playerSpeed: 1.8,           // Player movement speed (slower on easy)
+            aiSpeed: 1.8,               // AI movement speed (same as player on easy)
+            angleDelta: 3,              // Turn rate (degrees) - slower on easy
             gapFrequency: [75, 120]     // Range for gap frequency [min, max] - longer intervals on easy
         },
         medium: {
+            // AI behavior parameters (consistent across difficulties)
             aiLookAhead: 50,
             aiAggressiveness: 0.2,
             aiRandomness: 0.05,
-            aiReactionTime: 3,
-            playerSpeed: 2,
-            aiSpeed: 2,
-            angleDelta: 4,
-            gapFrequency: [50, 80]
+            aiReactionTime: 2,         // Same reaction time across difficulties
+            
+            // Speed parameters (varies by difficulty)
+            playerSpeed: 2.2,           // Medium player speed
+            aiSpeed: 2.2,               // Same speed as player
+            angleDelta: 4,              // Medium turn rate
+            gapFrequency: [50, 80]      // Medium gap frequency
         },
         hard: {
-            aiLookAhead: 70,
-            aiAggressiveness: 0.3,
-            aiRandomness: 0.02,
-            aiReactionTime: 1,
-            playerSpeed: 2,
-            aiSpeed: 2.2,
-            angleDelta: 5,
+            // AI behavior parameters (consistent across difficulties)
+            aiLookAhead: 50,
+            aiAggressiveness: 0.2,
+            aiRandomness: 0.05,
+            aiReactionTime: 2,         // Same reaction time across difficulties
+            
+            // Speed parameters (varies by difficulty)
+            playerSpeed: 2.6,           // Faster on hard
+            aiSpeed: 2.6,               // Same speed as player
+            angleDelta: 5,              // Faster turns on hard
             gapFrequency: [30, 60]      // More frequent gaps on hard
         }
     },

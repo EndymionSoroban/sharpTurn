@@ -18,7 +18,7 @@ class GameEngine {
         this.frameCounter = 0;
         
         // Worker management
-        this.aiWorkers = [];
+        this.AiWorkers = [];
         this.pendingAICalculations = {};
         
         // Performance metrics
@@ -140,51 +140,55 @@ class GameEngine {
     
     // Initialize Web Workers for AI
     initializeWorkers() {
-  // Terminate any existing workers
-	  this.aiWorkers.forEach(worker => worker.terminate());
-	  this.aiWorkers = [];
-	  this.pendingAICalculations = {};
-	  
-	  // Create one worker per AI player
-	  const aiPlayerIndices = this.players
-		.filter(player => !player.isHuman)
-		.map(player => player.index);
-	  
-	  aiPlayerIndices.forEach(playerIdx => {
-		try {
-		  const worker = new Worker('aiWorker.js');
-		  
-		  // Set up message handler
-		  worker.onmessage = (e) => {
-			const data = e.data;
-			
-			// Handle normal path calculation results
-			if (data.playerIdx !== undefined && data.pathPlan) {
-			  // Store the path plan
-			  this.aiPathPlans[data.playerIdx] = data.pathPlan;
-			  
-			  // Mark calculation as completed
-			  delete this.pendingAICalculations[data.playerIdx];
-			}
-			// Handle debug messages
-			else if (data.type === 'debug') {
-			  handleWorkerDebugMessages(e);
-			}
-		  };
-		  
-		  worker.onerror = (e) => {
-			console.error(`Error in worker for player ${playerIdx}:`, e);
-			delete this.pendingAICalculations[playerIdx];
-		  };
-		  
-		  this.aiWorkers.push(worker);
-		} catch (e) {
-		  console.error("Error creating worker:", e);
-		}
-	  });
-	  
-	  console.log(`Initialized ${this.aiWorkers.length} AI workers`);
-	}
+    // Terminate any existing workers
+    this.AiWorkers.forEach(worker => worker.terminate());
+    this.AiWorkers = [];
+    this.pendingAICalculations = {};
+    
+    // Create one worker per AI player
+    const aiPlayerIndices = this.players
+        .filter(player => !player.isHuman)
+        .map(player => player.index);
+    
+    aiPlayerIndices.forEach(playerIdx => {
+        try {
+            const worker = new Worker('AiWorker.js');
+            
+            // Set up message handler
+            worker.onmessage = (e) => {
+                const data = e.data;
+                
+                // Handle normal path calculation results
+                if (data.playerIdx !== undefined && data.pathPlan) {
+                    // Store the path plan
+                    this.aiPathPlans[data.playerIdx] = data.pathPlan;
+                    
+                    // Mark calculation as completed
+                    delete this.pendingAICalculations[playerIdx];
+                }
+                // Handle debug messages with safe handling
+                else if (data.type === 'debug') {
+                    try {
+                        handleWorkerDebugMessages(e);
+                    } catch (err) {
+                        console.error("Error handling worker debug message:", err);
+                    }
+                }
+            };
+            
+            worker.onerror = (e) => {
+                console.error(`Error in worker for player ${playerIdx}:`, e);
+                delete this.pendingAICalculations[playerIdx];
+            };
+            
+            this.AiWorkers.push(worker);
+        } catch (e) {
+            console.error("Error creating worker:", e);
+        }
+    });
+    
+    console.log(`Initialized ${this.AiWorkers.length} AI workers`);
+}
     
     // Create players based on settings
     createPlayers(enabledPlayers) {
@@ -194,14 +198,23 @@ class GameEngine {
         
         console.log("Creating", playerCount, "players");
         
-        // Create players in a circular arrangement
+        // Define corner positions with padding
+        const padding = 50;  // Padding from the edge of the canvas
+        const cornerPositions = [
+            { x: padding, y: padding },                                  // Top Left
+            { x: this.canvas.width - padding, y: padding },              // Top Right
+            { x: padding, y: this.canvas.height - padding },             // Bottom Left
+            { x: this.canvas.width - padding, y: this.canvas.height - padding }  // Bottom Right
+        ];
+        
+        // Create players in the corners
         enabledPlayers.forEach((playerConfig, index) => {
-            // Calculate position based on player index and count
-            const angle = (index / playerCount) * Math.PI * 2;
-            const radius = this.canvas.width * 0.35; // Position at 35% from center to edge
+            // Use index to determine which corner (supports up to 4 players)
+            const cornerIndex = index % 4;
+            const cornerPos = cornerPositions[cornerIndex];
             
-            const startX = centerX + Math.cos(angle) * radius;
-            const startY = centerY + Math.sin(angle) * radius;
+            const startX = cornerPos.x;
+            const startY = cornerPos.y;
             
             // Calculate vector pointing TOWARD center
             const dirX = centerX - startX;
@@ -354,7 +367,7 @@ class GameEngine {
                         // Check if multithreading is enabled
                         const useMultithreading = document.getElementById('useMultithreading')?.checked;
                         
-                        if (useMultithreading && this.aiWorkers.length > 0) {
+                        if (useMultithreading && this.AiWorkers.length > 0) {
                             // Mark as calculating
                             this.pendingAICalculations[playerIdx] = true;
                             
@@ -373,9 +386,9 @@ class GameEngine {
                                 
                             const workerIndex = aiPlayerIndices.indexOf(playerIdx);
                             
-                            if (workerIndex >= 0 && workerIndex < this.aiWorkers.length) {
+                            if (workerIndex >= 0 && workerIndex < this.AiWorkers.length) {
                                 // Send calculation task to worker with complete data
-                                this.aiWorkers[workerIndex].postMessage({
+                                this.AiWorkers[workerIndex].postMessage({
                                     command: 'calculatePath',
                                     playerIdx: playerIdx,
                                     gameState: {
@@ -511,87 +524,206 @@ class GameEngine {
     
     // Calculate a path for AI player (fallback if workers are disabled)
     calculateAIPath(playerIdx) {
-        const player = this.players[playerIdx];
-        
-        // Calculate direction to center
-        const head = player.arrayOfPos[player.arrayOfPos.length - 1];
-        const centerX = this.canvas.width / 2;
-        const centerY = this.canvas.height / 2;
-        
-        // Create a simple path plan
-        const pathPlan = {
-            segments: [],
-            currentSegment: 0
-        };
-        
-        // Check if we're near a wall for emergency avoidance
-        const distToLeftWall = head[0];
-        const distToRightWall = this.canvas.width - head[0];
-        const distToTopWall = head[1];
-        const distToBottomWall = this.canvas.height - head[1];
-        
-        const minWallDist = Math.min(distToLeftWall, distToRightWall, distToTopWall, distToBottomWall);
-        const emergencyThreshold = 60; // More sensitive emergency threshold
-        
-        let initialDirection = 0;
-        
-        // Emergency avoidance if near a wall
-        if (minWallDist < emergencyThreshold) {
-            // Determine which wall is closest and turn away from it
-            if (distToLeftWall === minWallDist) {
-                initialDirection = this.settings.angleDelta; // Turn right
-            } else if (distToRightWall === minWallDist) {
-                initialDirection = -this.settings.angleDelta; // Turn left
-            } else if (distToTopWall === minWallDist) {
-                // In top section, check if we're moving toward wall
-                const currentHeading = Math.atan2(head[1] - player.arrayOfPos[player.arrayOfPos.length - 2][1], 
-                                              head[0] - player.arrayOfPos[player.arrayOfPos.length - 2][0]);
-                initialDirection = (Math.cos(currentHeading) > 0) ? -this.settings.angleDelta : this.settings.angleDelta;
-            } else {
-                // In bottom section, check if we're moving toward wall
-                const currentHeading = Math.atan2(head[1] - player.arrayOfPos[player.arrayOfPos.length - 2][1], 
-                                              head[0] - player.arrayOfPos[player.arrayOfPos.length - 2][0]);
-                initialDirection = (Math.cos(currentHeading) > 0) ? this.settings.angleDelta : -this.settings.angleDelta;
-            }
-            
-            // Create emergency response plan
-            const escapeSegment = Array(15).fill(initialDirection);
-            pathPlan.segments.push(escapeSegment);
-            
-            // Add a second segment to move toward center
-            const towardCenterSegment = Array(10).fill(initialDirection * 0.5);
-            pathPlan.segments.push(towardCenterSegment);
+    const player = this.players[playerIdx];
+    
+    // Calculate direction to center
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    const centerX = this.canvas.width / 2;
+    const centerY = this.canvas.height / 2;
+    
+    // Create a simple path plan
+    const pathPlan = {
+        segments: [],
+        currentSegment: 0
+    };
+    
+    // Check if we're near a wall for emergency avoidance
+    const distToLeftWall = head[0];
+    const distToRightWall = this.canvas.width - head[0];
+    const distToTopWall = head[1];
+    const distToBottomWall = this.canvas.height - head[1];
+    
+    const minWallDist = Math.min(distToLeftWall, distToRightWall, distToTopWall, distToBottomWall);
+    const emergencyThreshold = 80; // More sensitive emergency threshold
+    
+    let initialDirection = 0;
+    
+    // Emergency avoidance if near a wall
+    if (minWallDist < emergencyThreshold) {
+        // Determine which wall is closest and turn away from it
+        if (distToLeftWall === minWallDist) {
+            initialDirection = this.settings.angleDelta; // Turn right
+        } else if (distToRightWall === minWallDist) {
+            initialDirection = -this.settings.angleDelta; // Turn left
+        } else if (distToTopWall === minWallDist) {
+            // In top section, check if we're moving toward wall
+            const currentHeading = Math.atan2(
+                head[1] - player.arrayOfPos[player.arrayOfPos.length - 2][1], 
+                head[0] - player.arrayOfPos[player.arrayOfPos.length - 2][0]
+            );
+            initialDirection = (Math.cos(currentHeading) > 0) ? -this.settings.angleDelta : this.settings.angleDelta;
         } else {
-            // Not in emergency mode, generate a path with better variety
-            const angleDelta = this.settings.angleDelta;
-            const directions = [-angleDelta, -angleDelta/2, 0, angleDelta/2, angleDelta];
-            
-            // Add a few segments with varying directions
-            for (let i = 0; i < 3; i++) {
-                // Favor directions toward center when further from center
-                const distFromCenter = Math.sqrt(
-                    Math.pow(head[0] - centerX, 2) + 
-                    Math.pow(head[1] - centerY, 2)
-                );
-                
-                const segmentLength = 10;
-                let direction;
-                
-                if (distFromCenter > this.canvas.width * 0.3) {
-                    // When far from center, bias toward center
-                    direction = this.getDirectionTowardCenter(player, centerX, centerY);
-                } else {
-                    // When close to center, more random movement
-                    direction = directions[Math.floor(Math.random() * directions.length)];
-                }
-                
-                pathPlan.segments.push(Array(segmentLength).fill(direction));
-            }
+            // In bottom section, check if we're moving toward wall
+            const currentHeading = Math.atan2(
+                head[1] - player.arrayOfPos[player.arrayOfPos.length - 2][1], 
+                head[0] - player.arrayOfPos[player.arrayOfPos.length - 2][0]
+            );
+            initialDirection = (Math.cos(currentHeading) > 0) ? this.settings.angleDelta : -this.settings.angleDelta;
         }
         
-        // Store the path plan
-        this.aiPathPlans[playerIdx] = pathPlan;
+        // Create emergency response plan
+        const escapeSegment = Array(10).fill(initialDirection); // Shortened for more frequent recalculation
+        pathPlan.segments.push(escapeSegment);
+        
+        // Add a second segment to move toward center
+        const towardCenterSegment = Array(5).fill(initialDirection * 0.5); // Shortened and softened
+        pathPlan.segments.push(towardCenterSegment);
+    } else {
+        // Not in emergency mode, generate a path with better variety
+        const angleDelta = this.settings.angleDelta;
+        
+        // More granular directions for smoother movement
+        const directions = [
+            -angleDelta,
+            -angleDelta * 0.75,
+            -angleDelta * 0.5, 
+            -angleDelta * 0.25,
+            0, 
+            angleDelta * 0.25,
+            angleDelta * 0.5,
+            angleDelta * 0.75,
+            angleDelta
+        ];
+        
+        // Add shorter segments with varying directions for more responsive movement
+        for (let i = 0; i < 3; i++) {
+            // Favor directions toward center when further from center
+            const distFromCenter = Math.sqrt(
+                Math.pow(head[0] - centerX, 2) + 
+                Math.pow(head[1] - centerY, 2)
+            );
+            
+            // Use shorter segments for more frequent recalculation
+            const segmentLength = 6; 
+            let direction;
+            
+            if (distFromCenter > this.canvas.width * 0.3) {
+                // When far from center, bias toward center
+                direction = this.getDirectionTowardCenter(player, centerX, centerY);
+            } else {
+                // When close to center, more random movement but avoid immediate obstacles
+                // Try to detect if we're heading toward another player
+                const nearbyTrail = this.checkForNearbyTrails(player, 60); // Look for trails within 60px
+                
+                if (nearbyTrail) {
+                    // If there's a trail ahead, choose a direction to avoid it
+                    direction = this.calculateAvoidanceDirection(player, nearbyTrail);
+                    
+                    // Use a shorter segment when avoiding obstacles
+                    pathPlan.segments.push(Array(4).fill(direction));
+                    continue;
+                } else {
+                    // No immediate obstacle, choose a random direction
+                    // Slightly bias toward continuing straight
+                    if (Math.random() < 0.3) {
+                        direction = 0; // Straight ahead
+                    } else {
+                        // Random direction with slight bias toward smaller turns
+                        const weightedDirections = directions.flatMap((dir, idx) => {
+                            // Center index (straight) has most weight
+                            const centerIdx = Math.floor(directions.length / 2);
+                            const distFromCenter = Math.abs(idx - centerIdx);
+                            // Give more weight to smaller turns
+                            return Array(directions.length - distFromCenter).fill(dir);
+                        });
+                        
+                        direction = weightedDirections[Math.floor(Math.random() * weightedDirections.length)];
+                    }
+                }
+            }
+            
+            pathPlan.segments.push(Array(segmentLength).fill(direction));
+        }
     }
+    
+    // Store the path plan
+    this.aiPathPlans[playerIdx] = pathPlan;
+}
+
+// Add this new method to check for nearby player trails
+checkForNearbyTrails(player, searchDistance) {
+    if (player.arrayOfPos.length < 2) return null;
+    
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    const prevHead = player.arrayOfPos[player.arrayOfPos.length - 2];
+    
+    // Calculate direction vector
+    const dirX = head[0] - prevHead[0];
+    const dirY = head[1] - prevHead[1];
+    const mag = Math.sqrt(dirX * dirX + dirY * dirY);
+    if (mag < 0.0001) return null; // Prevent division by zero
+    
+    const normDirX = dirX / mag;
+    const normDirY = dirY / mag;
+    
+    // Project a point ahead to check for trails
+    const lookAheadDist = searchDistance;
+    const checkPos = [
+        head[0] + normDirX * lookAheadDist,
+        head[1] + normDirY * lookAheadDist
+    ];
+    
+    // Check all players' trails
+    for (const otherPlayer of this.players) {
+        // Skip self or players with very short trails
+        if (otherPlayer === player || otherPlayer.arrayOfPos.length < 10) continue;
+        
+        // Sample the trail at regular intervals for efficiency
+        const samplingRate = Math.max(1, Math.floor(otherPlayer.arrayOfPos.length / 300));
+        
+        for (let i = 0; i < otherPlayer.arrayOfPos.length; i += samplingRate) {
+            const pos = otherPlayer.arrayOfPos[i];
+            
+            // Skip positions in gaps
+            if (otherPlayer.isPositionInGap && otherPlayer.isPositionInGap(pos)) continue;
+            
+            // Check distance to look-ahead point
+            const dx = checkPos[0] - pos[0];
+            const dy = checkPos[1] - pos[1];
+            const distSquared = dx * dx + dy * dy;
+            
+            // Use squared distance for performance (avoid square root)
+            const thresholdSquared = (player.lineWidth * 2) * (player.lineWidth * 2);
+            
+            if (distSquared < thresholdSquared) {
+                // Found a trail ahead - return the position
+                return pos;
+            }
+        }
+    }
+    
+    return null; // No nearby trails found
+}
+
+// Add this new method to calculate a direction to avoid a trail
+calculateAvoidanceDirection(player, trailPos) {
+    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+    const angleDelta = this.settings.angleDelta;
+    
+    // Calculate vector from head to trail
+    const trailVectorX = trailPos[0] - head[0];
+    const trailVectorY = trailPos[1] - head[1];
+    
+    // Calculate perpendicular directions (left and right of obstacle)
+    // Use dot product to determine which side offers more space
+    const currentDirX = head[0] - player.arrayOfPos[player.arrayOfPos.length - 2][0];
+    const currentDirY = head[1] - player.arrayOfPos[player.arrayOfPos.length - 2][1];
+    
+    // Calculate cross product to determine which way to turn
+    const crossProduct = currentDirX * trailVectorY - currentDirY * trailVectorX;
+    
+    return crossProduct > 0 ? -angleDelta : angleDelta;
+}
     
     // Helper to determine direction that points toward center
     getDirectionTowardCenter(player, centerX, centerY) {
@@ -701,8 +833,8 @@ class GameEngine {
     // Clean up resources
     cleanup() {
         // Terminate workers
-        this.aiWorkers.forEach(worker => worker.terminate());
-        this.aiWorkers = [];
+        this.AiWorkers.forEach(worker => worker.terminate());
+        this.AiWorkers = [];
     }
 }
 

@@ -1,4 +1,4 @@
-// aiWorker.js - Ultra-sharp turning AI that mimics player holding turn button
+// Early Detection AI - Detects and reacts to dangers much earlier
 
 // Debug flag
 const DEBUG_AI = true;
@@ -27,30 +27,41 @@ self.onmessage = function(e) {
       canvasWidth, 
       canvasHeight, 
       aiSettings,
-      lineWidth,
-      activePlayers
+      lineWidth
     } = gameState;
     
     // Get the game's maximum angle delta from settings
     const maxAngleDelta = aiSettings.angleDelta || 5;
     
-    // Calculate turn direction using sensor approach
-    const turnDirection = sensorBasedMove(playerIdx, playerData, canvasWidth, canvasHeight, lineWidth, maxAngleDelta);
-    
-    // Create a longer path segment of the same angle to simulate holding the button
-    // This is the key change - create a multi-step segment with the same turn angle
-    // to simulate a player continuously holding the turn button
-    const steps = 5; // Simulate holding the turn button for 5 frames
-    const pathPlan = {
-      segments: [Array(steps).fill(turnDirection)],
-      currentSegment: 0
-    };
-    
-    // Send the result back to main thread
-    self.postMessage({
-      playerIdx: playerIdx,
-      pathPlan: pathPlan
-    });
+    try {
+      // Calculate turn direction using early detection approach
+      const turnDirection = earlyDetectionLogic(
+        playerIdx, playerData, canvasWidth, canvasHeight, lineWidth, maxAngleDelta
+      );
+      
+      // Create a path segment to simulate holding the button down
+      const steps = 8;
+      const pathPlan = {
+        segments: [Array(steps).fill(turnDirection)],
+        currentSegment: 0
+      };
+      
+      // Send the result back to main thread
+      self.postMessage({
+        playerIdx: playerIdx,
+        pathPlan: pathPlan
+      });
+    } catch (err) {
+      debugLog(`ERROR: ${err.message}`);
+      // Send a default "no turn" response in case of error
+      self.postMessage({
+        playerIdx: playerIdx,
+        pathPlan: {
+          segments: [Array(1).fill(0)],
+          currentSegment: 0
+        }
+      });
+    }
   }
   else if (command === 'getDebugLogs') {
     self.postMessage({
@@ -67,100 +78,282 @@ self.onmessage = function(e) {
   }
 };
 
-// Use "sensors" to check for obstacles and decide turn direction
-function sensorBasedMove(playerIdx, playerData, canvasWidth, canvasHeight, lineWidth, maxAngleDelta) {
-    // Get player data
-    const players = playerData;
-    const player = players[playerIdx];
+// Early detection logic that prioritizes detecting dangers early and reacting quickly
+function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, lineWidth, maxAngleDelta) {
+  const player = playerData[playerIdx];
+  if (!player || !player.arrayOfPos || player.arrayOfPos.length < 2) {
+    throw new Error("Invalid player data");
+  }
+  
+  // Get the last two positions to determine direction
+  const head = player.arrayOfPos[player.arrayOfPos.length - 1];
+  const prev = player.arrayOfPos[player.arrayOfPos.length - 2];
+  
+  // Calculate and normalize direction vector
+  const dirX = head[0] - prev[0];
+  const dirY = head[1] - prev[1];
+  const mag = Math.sqrt(dirX * dirX + dirY * dirY);
+  if (mag < 0.0001) return 0;
+  const normDirX = dirX / mag;
+  const normDirY = dirY / mag;
+  
+  debugLog(`Position: [${head[0].toFixed(1)}, ${head[1].toFixed(1)}], Direction: [${normDirX.toFixed(2)}, ${normDirY.toFixed(2)}]`);
+  
+  // FIRST check for extremely close walls (this is critical for starting positions)
+  const wallDetectionThreshold = 150; // Wall detection threshold increased
+  
+  // Calculate distances to walls
+  const distToLeftWall = head[0];
+  const distToRightWall = canvasWidth - head[0];
+  const distToTopWall = head[1];
+  const distToBottomWall = canvasHeight - head[1];
+  
+  // Simple check if we're facing a wall and are very close
+  if (distToLeftWall < wallDetectionThreshold && normDirX < 0) {
+    debugLog(`IMMEDIATE WALL DANGER: Left wall at ${distToLeftWall.toFixed(1)} - turning RIGHT`);
+    return maxAngleDelta; // Turn RIGHT
+  }
+  if (distToRightWall < wallDetectionThreshold && normDirX > 0) {
+    debugLog(`IMMEDIATE WALL DANGER: Right wall at ${distToRightWall.toFixed(1)} - turning LEFT`);
+    return -maxAngleDelta; // Turn LEFT
+  }
+  if (distToTopWall < wallDetectionThreshold && normDirY < 0) {
+    debugLog(`IMMEDIATE WALL DANGER: Top wall at ${distToTopWall.toFixed(1)} - turning DOWN`);
+    return normDirX > 0 ? maxAngleDelta : -maxAngleDelta; // Turn DOWN
+  }
+  if (distToBottomWall < wallDetectionThreshold && normDirY > 0) {
+    debugLog(`IMMEDIATE WALL DANGER: Bottom wall at ${distToBottomWall.toFixed(1)} - turning UP`);
+    return normDirX > 0 ? -maxAngleDelta : maxAngleDelta; // Turn UP
+  }
+  
+  // Define wider sensor angles for better coverage
+  const sensorAngles = [
+    // Forward cone sensors
+    { name: "Forward", angle: 0, isLeft: false, length: 400 },      // Increased range
+    { name: "Left5°", angle: -5, isLeft: true, length: 390 },
+    { name: "Right5°", angle: 5, isLeft: false, length: 390 },
+    { name: "Left15°", angle: -15, isLeft: true, length: 380 },
+    { name: "Right15°", angle: 15, isLeft: false, length: 380 },
+    { name: "Left30°", angle: -30, isLeft: true, length: 350 },
+    { name: "Right30°", angle: 30, isLeft: false, length: 350 },
     
-    // Need at least 2 positions to get direction
-    if (player.arrayOfPos.length < 2) return 0;
+    // Wide angle sensors
+    { name: "Left45°", angle: -45, isLeft: true, length: 300 },
+    { name: "Right45°", angle: 45, isLeft: false, length: 300 },
+    { name: "Left60°", angle: -60, isLeft: true, length: 250 },
+    { name: "Right60°", angle: 60, isLeft: false, length: 250 },
+    { name: "Left90°", angle: -90, isLeft: true, length: 200 },
+    { name: "Right90°", angle: 90, isLeft: false, length: 200 }
+  ];
+  
+  // Check each sensor for obstacles and record the distance to the closest obstacle
+  const sensorResults = [];
+  
+  for (const sensor of sensorAngles) {
+    const angleRad = sensor.angle * Math.PI / 180;
     
-    const head = player.arrayOfPos[player.arrayOfPos.length - 1];
-    const prev = player.arrayOfPos[player.arrayOfPos.length - 2];
+    // Calculate sensor direction vector
+    const sensorX = normDirX * Math.cos(angleRad) - normDirY * Math.sin(angleRad);
+    const sensorY = normDirX * Math.sin(angleRad) + normDirY * Math.cos(angleRad);
     
-    // Calculate current direction
-    const dirX = head[0] - prev[0];
-    const dirY = head[1] - prev[1];
+    // Get distance to the closest obstacle in this direction
+    const distance = findDistanceToObstacle(
+      head, sensorX, sensorY, sensor.length,
+      playerData, canvasWidth, canvasHeight, lineWidth, playerIdx
+    );
     
-    // Normalize
-    const mag = Math.sqrt(dirX * dirX + dirY * dirY);
-    const normDirX = dirX / mag;
-    const normDirY = dirY / mag;
+    // Store the result
+    sensorResults.push({
+      name: sensor.name,
+      angle: sensor.angle,
+      isLeft: sensor.isLeft,
+      distance: distance,
+      maxDistance: sensor.length
+    });
+  }
+  
+  // Sort sensors by distance (closest first)
+  sensorResults.sort((a, b) => a.distance - b.distance);
+  
+  // Log all sensor readings for debugging
+  let sensorLog = "SENSORS - ";
+  for (const result of sensorResults) {
+    sensorLog += `${result.name}: ${result.distance.toFixed(1)}, `;
+  }
+  debugLog(sensorLog.slice(0, -2)); // Remove trailing comma and space
+  
+  // Define danger thresholds - INCREASED for earlier reaction
+  const immediateThreshold = 120;  // Very close (increased from 80)
+  const dangerThreshold = 200;    // Close enough to warrant avoidance (increased from 150)
+  const cautionThreshold = 300;   // Start being cautious (new threshold)
+  
+  // Get the closest obstacle
+  const closestObstacle = sensorResults[0];
+  
+  // Check if there's an immediate danger (an obstacle very close)
+  if (closestObstacle.distance < immediateThreshold) {
+    // This is the most critical case - IMMEDIATE DANGER!
+    // Make maximum turn away from the danger
     
-    // Just use the 30 degree sensors to decide which way to turn
-    const leftAngle = -30 * Math.PI / 180;  // 30 degrees left
-    const rightAngle = 30 * Math.PI / 180;  // 30 degrees right
-    
-    // Calculate left sensor vector
-    const leftSensorX = normDirX * Math.cos(leftAngle) - normDirY * Math.sin(leftAngle);
-    const leftSensorY = normDirX * Math.sin(leftAngle) + normDirY * Math.cos(leftAngle);
-    
-    // Calculate right sensor vector
-    const rightSensorX = normDirX * Math.cos(rightAngle) - normDirY * Math.sin(rightAngle);
-    const rightSensorY = normDirX * Math.sin(rightAngle) + normDirY * Math.cos(rightAngle);
-    
-    // Measure distance to collision in each direction
-    const leftDist = measureDistanceToCollision(head, leftSensorX, leftSensorY, players, canvasWidth, canvasHeight, lineWidth);
-    const rightDist = measureDistanceToCollision(head, rightSensorX, rightSensorY, players, canvasWidth, canvasHeight, lineWidth);
-    
-    // Log the sensor distances
-    debugLog(`SENSORS - Left: ${leftDist.toFixed(1)}px, Right: ${rightDist.toFixed(1)}px`);
-    
-    // Simple decision logic - turn away from the closest obstacle with maximum sharpness
-    if (leftDist < rightDist) {
-        debugLog(`LEFT CLOSER - Turning RIGHT with MAXIMUM angle: ${maxAngleDelta}`);
-        return maxAngleDelta;  // Turn right as sharply as possible
-    } else if (rightDist < leftDist) {
-        debugLog(`RIGHT CLOSER - Turning LEFT with MAXIMUM angle: ${-maxAngleDelta}`);
-        return -maxAngleDelta; // Turn left as sharply as possible
+    if (closestObstacle.isLeft) {
+      // Immediate danger to the left - turn right sharply
+      debugLog(`IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP RIGHT`);
+      return maxAngleDelta;
     } else {
-        // Equal distances - make a random decision, but always turn at max angle
-        const direction = Math.random() > 0.5 ? maxAngleDelta : -maxAngleDelta;
-        debugLog(`EQUAL DISTANCES - Random turn with MAXIMUM angle: ${direction}`);
-        return direction;
+      // Immediate danger to the right or forward - turn left sharply
+      debugLog(`IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP LEFT`);
+      return -maxAngleDelta;
     }
+  }
+  
+  // Check if there's a danger that warrants strong avoidance
+  if (closestObstacle.distance < dangerThreshold) {
+    // Significant danger - make a strong turn away
+    if (closestObstacle.name === "Forward") {
+      // Forward obstacle - check which side has more space
+      const leftSensor = sensorResults.find(s => s.name === "Left30°");
+      const rightSensor = sensorResults.find(s => s.name === "Right30°");
+      
+      if (leftSensor.distance > rightSensor.distance + 30) {
+        debugLog(`DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
+        return -maxAngleDelta;
+      } else {
+        debugLog(`DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
+        return maxAngleDelta;
+      }
+    }
+    else if (closestObstacle.isLeft) {
+      // Danger to the left - turn right
+      debugLog(`DANGER LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
+      return maxAngleDelta;
+    }
+    else {
+      // Danger to the right - turn left
+      debugLog(`DANGER RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
+      return -maxAngleDelta;
+    }
+  }
+  
+  // Check if there's an obstacle that warrants caution
+  if (closestObstacle.distance < cautionThreshold) {
+    // Start turning away early but less sharply
+    if (closestObstacle.name === "Forward" || closestObstacle.name === "Left5°" || closestObstacle.name === "Right5°") {
+      // Forward or near-forward obstacle - check wide sensors to find the best escape route
+      const left45Sensor = sensorResults.find(s => s.name === "Left45°");
+      const right45Sensor = sensorResults.find(s => s.name === "Right45°");
+      
+      if (left45Sensor.distance > right45Sensor.distance + 50) {
+        debugLog(`CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
+        return -maxAngleDelta;
+      } else {
+        debugLog(`CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
+        return maxAngleDelta;
+      }
+    }
+    else if (closestObstacle.isLeft) {
+      // Obstacle to the left - turn right early
+      debugLog(`CAUTION LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
+      return maxAngleDelta;
+    }
+    else {
+      // Obstacle to the right - turn left early
+      debugLog(`CAUTION RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
+      return -maxAngleDelta;
+    }
+  }
+  
+  // Check for long-range obstacles in the forward cone
+  const forwardObstacles = sensorResults.filter(s => 
+    (s.name === "Forward" || s.name === "Left15°" || s.name === "Right15°") && 
+    s.distance < s.maxDistance);
+  
+  if (forwardObstacles.length > 0) {
+    // There's something in the forward cone, but it's not immediately dangerous
+    // Make a gentle turn toward the more open side
+    const left60Sensor = sensorResults.find(s => s.name === "Left60°");
+    const right60Sensor = sensorResults.find(s => s.name === "Right60°");
+    
+    if (left60Sensor.distance > right60Sensor.distance + 70) {
+      debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle LEFT turn`);
+      return -maxAngleDelta / 2;
+    } else if (right60Sensor.distance > left60Sensor.distance + 70) {
+      debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle RIGHT turn`);
+      return maxAngleDelta / 2;
+    }
+  }
+  
+  // No significant obstacles detected - continue straight with occasional random turns
+  if (Math.random() < 0.05) {
+    const randomTurn = Math.random() < 0.5 ? maxAngleDelta/2 : -maxAngleDelta/2;
+    debugLog(`RANDOM TURN: ${randomTurn}`);
+    return randomTurn;
+  }
+  
+  debugLog("ALL CLEAR - CONTINUING STRAIGHT");
+  return 0; // Continue straight
 }
 
-// Measure distance to collision in a given direction
-function measureDistanceToCollision(head, dirX, dirY, players, canvasWidth, canvasHeight, lineWidth) {
-    // Check distance in this direction until collision or max distance
-    const maxDist = 200;  // Maximum sensor range
-    const stepSize = 5;   // Check every 5 pixels for performance
+// Improved distance detection function
+function findDistanceToObstacle(head, dirX, dirY, maxLength, playerData, canvasWidth, canvasHeight, lineWidth, currentPlayerIdx) {
+  const steps = 200; // More points for more precise distance finding
+  const stepSize = maxLength / steps;
+  
+  // Check for walls and trails, returning the exact distance at first collision
+  for (let i = 1; i <= steps; i++) {
+    const distance = i * stepSize;
+    const posX = head[0] + dirX * distance;
+    const posY = head[1] + dirY * distance;
     
-    for (let dist = stepSize; dist <= maxDist; dist += stepSize) {
-        const checkX = head[0] + dirX * dist;
-        const checkY = head[1] + dirY * dist;
-        
-        // Check wall collision
-        if (checkX <= lineWidth || checkX >= canvasWidth - lineWidth ||
-            checkY <= lineWidth || checkY >= canvasHeight - lineWidth) {
-            return dist;  // Distance to wall
-        }
-        
-        // Check player trail collisions - check EVERY position for accuracy
-        for (const player of players) {
-            for (let i = 0; i < player.arrayOfPos.length; i++) {
-                const pos = player.arrayOfPos[i];
-                
-                // Skip positions in gaps
-                if (player.gapArray && player.gapArray.some(gapPos => 
-                    Math.abs(gapPos[0] - pos[0]) < 1 && 
-                    Math.abs(gapPos[1] - pos[1]) < 1)) {
-                    continue;
-                }
-                
-                // Check distance 
-                const dx = checkX - pos[0];
-                const dy = checkY - pos[1];
-                const distSquared = dx * dx + dy * dy;
-                
-                if (distSquared < lineWidth * lineWidth) {
-                    return dist;  // Distance to trail collision
-                }
-            }
-        }
+    // Check if this position is outside the playfield or near a wall
+    // Use a larger buffer for wall detection
+    const wallBuffer = lineWidth * 2;
+    if (posX <= wallBuffer || posX >= canvasWidth - wallBuffer || 
+        posY <= wallBuffer || posY >= canvasHeight - wallBuffer) {
+      // Return the exact distance to the wall
+      return distance;
     }
     
-    return maxDist;  // No collision found within range
+    // Check collision with all player trails
+    for (let p = 0; p < playerData.length; p++) {
+      const player = playerData[p];
+      if (!player || !player.arrayOfPos) continue;
+      
+      // Skip the last positions of current player (to avoid self-collision)
+      const skipSelfPositions = p === currentPlayerIdx ? 25 : 0;
+      
+      // Adaptive sampling based on trail length - check more points for better accuracy
+      const trailSampling = Math.max(1, Math.floor(player.arrayOfPos.length / 500));
+      
+      for (let j = 0; j < player.arrayOfPos.length - skipSelfPositions; j += trailSampling) {
+        const trailPos = player.arrayOfPos[j];
+        if (!trailPos) continue;
+        
+        // Skip positions in gaps
+        let isInGap = false;
+        if (player.gapArray && player.gapArray.length > 0) {
+          for (const gapPos of player.gapArray) {
+            if (gapPos && Math.abs(gapPos[0] - trailPos[0]) < 1 && Math.abs(gapPos[1] - trailPos[1]) < 1) {
+              isInGap = true;
+              break;
+            }
+          }
+        }
+        
+        if (isInGap) continue;
+        
+        // Check distance to this trail segment - INCREASED detection radius
+        const dx = posX - trailPos[0];
+        const dy = posY - trailPos[1];
+        const distSquared = dx * dx + dy * dy;
+        
+        // Larger collision threshold for earlier detection
+        if (distSquared < (lineWidth * 3) * (lineWidth * 3)) {
+          return distance;
+        }
+      }
+    }
+  }
+  
+  // No obstacle found within range
+  return maxLength;
 }
