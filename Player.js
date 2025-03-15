@@ -37,6 +37,11 @@ class Player {
         // Starting position - just one point initially
         this.arrayOfPos.push([xPos, yPos]);
     }
+	getLineWidth(positionIndex) {
+		// By default, just return the lineWidth property
+		return this.lineWidth;
+	}
+
     
     // Calculate random interval until next gap
     calculateNextGapInterval() {

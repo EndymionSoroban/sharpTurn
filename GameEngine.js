@@ -120,6 +120,11 @@ class GameEngine {
         
         // Create players
         this.createPlayers(enabledPlayers);
+		
+		this.powerupManager = new PowerupManager(this.canvas, this.players);
+		this.powerupManager.initialize();
+		
+		this.renderer.powerupManager = this.powerupManager;
         
         // Initialize workers for AI players if multithreading is enabled
         const useMultithreading = document.getElementById('useMultithreading').checked;
@@ -416,6 +421,10 @@ class GameEngine {
                 player.addPosition(aiAngle);
             }
         });
+		
+		if (this.powerupManager) {
+			this.powerupManager.update(performance.now());
+		}
         
         // Render all players
         const useOptimizedRendering = document.getElementById('useOptimizedRendering')?.checked;
@@ -835,6 +844,7 @@ calculateAvoidanceDirection(player, trailPos) {
         // Terminate workers
         this.AiWorkers.forEach(worker => worker.terminate());
         this.AiWorkers = [];
+		this.powerupManager = null;
     }
 }
 

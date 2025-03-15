@@ -104,6 +104,14 @@
                 <li><strong>Random Gaps:</strong> Players leave random gaps in their trails</li>
                 <li><strong>Dynamic AI:</strong> AI difficulty adjusts based on player count</li>
                 <li><strong>Multiple Rounds:</strong> Play multiple rounds to determine the overall winner</li>
+                <li><strong>Powerups:</strong> Collect powerups for special abilities:
+                    <ul>
+                        <li><span style="color:#FF5722">✖ Eraser</span> - Removes all trails</li>
+                        <li><span style="color:#2196F3">★ Wings</span> - Temporary invulnerability</li>
+                        <li><span style="color:#9C27B0">↓ Shrink</span> - Makes your trail thinner</li>
+                        <li><span style="color:#4CAF50">↑ Grow</span> - Makes your trail thicker</li>
+                    </ul>
+                </li>
                 <li><strong>Press F:</strong> Toggle FPS display during gameplay</li>
             </ul>
         </div>
@@ -132,12 +140,13 @@
         <button id="resetGameBtn">New Game</button>
     </div>
 
-    <!-- Core Game Scripts -->
-    <script src="SpatialGrid.js" defer></script>
-    <script src="Renderer.js" defer></script>
-    <script src="Player.js" defer></script>
-    <script src="GameSettings.js" defer></script>
-    <script src="GameEngine.js" defer></script>
-    <script src="Main.js" defer></script>
+    <!-- Core Game Scripts - Changed order to ensure dependency loading -->
+    <script src="SpatialGrid.js"></script>
+    <script src="Renderer.js"></script>
+    <script src="PowerupManager.js"></script>
+    <script src="Player.js"></script>
+    <script src="GameSettings.js"></script>
+    <script src="GameEngine.js"></script>
+    <script src="Main.js"></script>
 </body>
 </html>

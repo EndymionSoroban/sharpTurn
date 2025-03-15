@@ -16,6 +16,9 @@ class Renderer {
         
         // Frame counter for tracking when to update
         this.frameCount = 0;
+        
+        // Reference to powerup manager
+        this.powerupManager = null;
     }
     
     // Create canvas layers for different elements
@@ -85,110 +88,129 @@ class Renderer {
         this.mainContext.drawImage(this.trailCanvas, 0, 0);
         this.mainContext.drawImage(this.headCanvas, 0, 0);
         
+        // Draw powerups if powerup manager exists
+        if (this.powerupManager) {
+            this.powerupManager.draw();
+        }
+        
         // Update frame count
         this.frameCount++;
     }
     
     // Draw a player's trail
     drawPlayerTrail(player, fullDraw) {
-        const ctx = this.trailContext;
+    const ctx = this.trailContext;
+    
+    // Ensure player has enough positions
+    if (player.arrayOfPos.length < 2) return;
+    
+    // Determine which segments to draw
+    let startIdx = fullDraw ? 0 : Math.max(0, player.arrayOfPos.length - 5);
+    let endIdx = player.arrayOfPos.length - 2; // Exclude the head segment
+    
+    // No segments to draw
+    if (startIdx >= endIdx) return;
+    
+    // Use segments to handle different line widths
+    let currentLineWidth = null;
+    let drawing = true; // Track if we're currently drawing or in a gap
+    let segmentStartIdx = startIdx;
+    
+    for (let i = startIdx; i <= endIdx; i++) {
+        const lineWidth = player.getLineWidth ? player.getLineWidth(i) : player.lineWidth;
         
-        // Ensure player has enough positions
-        if (player.arrayOfPos.length < 2) return;
+        // If line width changed or we hit a gap, end current path and start a new one
+        const isGapPosition = player.gapArray && player.gapArray.some(gapPos => {
+            const pos = player.arrayOfPos[i];
+            return pos && Math.abs(gapPos[0] - pos[0]) < 1 && Math.abs(gapPos[1] - pos[1]) < 1;
+        });
         
-        // Set line styles
-        ctx.lineWidth = player.lineWidth || 10;
-        ctx.strokeStyle = player.color;
-        
-        let drawing = true; // Track if we're currently drawing or in a gap
-        
-        // Determine which segments to draw
-        let startIdx = fullDraw ? 0 : Math.max(0, player.arrayOfPos.length - 5);
-        let endIdx = player.arrayOfPos.length - 2; // Exclude the head segment
-        
-        // No segments to draw
-        if (startIdx >= endIdx) return;
-        
-        // Start a new path
-        ctx.beginPath();
-        
-        // Start from the first position
-        ctx.moveTo(player.arrayOfPos[startIdx][0], player.arrayOfPos[startIdx][1]);
-        
-        for (let i = startIdx + 1; i <= endIdx; i++) {
-            const currentPos = player.arrayOfPos[i-1];
-            const nextPos = player.arrayOfPos[i];
-            
-            // Skip if position is in a gap
-            const isGapPosition = player.gapArray && player.gapArray.some(gapPos => 
-                Math.abs(gapPos[0] - currentPos[0]) < 1 && 
-                Math.abs(gapPos[1] - currentPos[1]) < 1
-            );
+        if (isGapPosition || (currentLineWidth !== null && lineWidth !== currentLineWidth)) {
+            // End current segment if we were drawing
+            if (drawing && i > segmentStartIdx) {
+                ctx.lineWidth = currentLineWidth || player.lineWidth;
+                ctx.strokeStyle = player.color;
+                ctx.beginPath();
+                ctx.moveTo(player.arrayOfPos[segmentStartIdx][0], player.arrayOfPos[segmentStartIdx][1]);
+                
+                for (let j = segmentStartIdx + 1; j <= i - 1; j++) {
+                    ctx.lineTo(player.arrayOfPos[j][0], player.arrayOfPos[j][1]);
+                }
+                
+                ctx.stroke();
+            }
             
             if (isGapPosition) {
-                // End current drawing path if we hit a gap
-                if (drawing) {
-                    ctx.stroke();
-                    drawing = false;
-                    
-                    // Start a new path after the gap
-                    if (i < endIdx) {
-                        ctx.beginPath();
-                    }
-                }
-            } else if (!drawing) {
-                // Start a new path after a gap
-                ctx.beginPath();
-                ctx.moveTo(currentPos[0], currentPos[1]);
+                drawing = false;
+            } else {
                 drawing = true;
+                segmentStartIdx = i;
+                currentLineWidth = lineWidth;
             }
-            
-            if (drawing) {
-                ctx.lineTo(nextPos[0], nextPos[1]);
-            }
-        }
-        
-        // Finish drawing any remaining path
-        if (drawing) {
-            ctx.stroke();
+        } else if (!drawing && !isGapPosition) {
+            // Start drawing again after a gap
+            drawing = true;
+            segmentStartIdx = i;
+            currentLineWidth = lineWidth;
+        } else if (currentLineWidth === null) {
+            // First segment
+            currentLineWidth = lineWidth;
         }
     }
     
+    // Draw the final segment if we were drawing
+    if (drawing && endIdx > segmentStartIdx) {
+        ctx.lineWidth = currentLineWidth || player.lineWidth;
+        ctx.strokeStyle = player.color;
+        ctx.beginPath();
+        ctx.moveTo(player.arrayOfPos[segmentStartIdx][0], player.arrayOfPos[segmentStartIdx][1]);
+        
+        for (let j = segmentStartIdx + 1; j <= endIdx; j++) {
+            ctx.lineTo(player.arrayOfPos[j][0], player.arrayOfPos[j][1]);
+        }
+        
+        ctx.stroke();
+    }
+}
+    
     // Draw a player's head segment
     drawPlayerHead(player) {
-        if (player.arrayOfPos.length < 2) return;
-        
-        const ctx = this.headContext;
-        const lastIdx = player.arrayOfPos.length - 1;
-        
-        // Set line styles
-        ctx.lineWidth = player.lineWidth || 10;
-        ctx.strokeStyle = player.color;
-        
-        // Draw head segment
-        ctx.beginPath();
-        ctx.moveTo(
-            player.arrayOfPos[lastIdx-1][0], 
-            player.arrayOfPos[lastIdx-1][1]
-        );
-        ctx.lineTo(
-            player.arrayOfPos[lastIdx][0], 
-            player.arrayOfPos[lastIdx][1]
-        );
-        ctx.stroke();
-        
-        // Add a small circle at the head for better visibility (optional)
-        ctx.beginPath();
-        ctx.fillStyle = player.color;
-        ctx.arc(
-            player.arrayOfPos[lastIdx][0],
-            player.arrayOfPos[lastIdx][1],
-            ctx.lineWidth / 2,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
-    }
+    if (player.arrayOfPos.length < 2) return;
+    
+    const ctx = this.headContext;
+    const lastIdx = player.arrayOfPos.length - 1;
+    
+    // Get the current line width for the head segment
+    const headLineWidth = player.getLineWidth ? player.getLineWidth(lastIdx) : player.lineWidth;
+    
+    // Set line styles
+    ctx.lineWidth = headLineWidth;
+    ctx.strokeStyle = player.color;
+    
+    // Draw head segment
+    ctx.beginPath();
+    ctx.moveTo(
+        player.arrayOfPos[lastIdx-1][0], 
+        player.arrayOfPos[lastIdx-1][1]
+    );
+    ctx.lineTo(
+        player.arrayOfPos[lastIdx][0], 
+        player.arrayOfPos[lastIdx][1]
+    );
+    ctx.stroke();
+    
+    // Add a small circle at the head for better visibility (optional)
+    ctx.beginPath();
+    ctx.fillStyle = player.color;
+    ctx.arc(
+        player.arrayOfPos[lastIdx][0],
+        player.arrayOfPos[lastIdx][1],
+        headLineWidth / 2,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+}
     
     // Force a full redraw on next frame
     requestFullRedraw() {
