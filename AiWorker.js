@@ -270,13 +270,13 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   if (forwardObstacles.length > 0) {
     // There's something in the forward cone, but it's not immediately dangerous
     // Make a gentle turn toward the more open side
-    const left60Sensor = sensorResults.find(s => s.name === "Left60°");
-    const right60Sensor = sensorResults.find(s => s.name === "Right60°");
+    const left30Sensor = sensorResults.find(s => s.name === "Left30°");
+    const right30Sensor = sensorResults.find(s => s.name === "Right30°");
     
-    if (left60Sensor.distance > right60Sensor.distance + 70) {
+    if (left30Sensor.distance > right30Sensor.distance + 70) {
       debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle LEFT turn`);
       return -maxAngleDelta / 2;
-    } else if (right60Sensor.distance > left60Sensor.distance + 70) {
+    } else if (right30Sensor.distance > left30Sensor.distance + 70) {
       debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle RIGHT turn`);
       return maxAngleDelta / 2;
     }
