@@ -1,4 +1,3 @@
-// Early Detection AI - Detects and reacts to dangers much earlier
 
 // Debug flag
 const DEBUG_AI = true;
@@ -100,7 +99,7 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   debugLog(`Position: [${head[0].toFixed(1)}, ${head[1].toFixed(1)}], Direction: [${normDirX.toFixed(2)}, ${normDirY.toFixed(2)}]`);
   
   // FIRST check for extremely close walls (this is critical for starting positions)
-  const wallDetectionThreshold = 150; // Wall detection threshold increased
+  const wallDetectionThreshold = 150; 
   
   // Calculate distances to walls
   const distToLeftWall = head[0];
@@ -183,9 +182,9 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   debugLog(sensorLog.slice(0, -2)); // Remove trailing comma and space
   
   // Define danger thresholds - INCREASED for earlier reaction
-  const immediateThreshold = 120;  // Very close (increased from 80)
-  const dangerThreshold = 200;    // Close enough to warrant avoidance (increased from 150)
-  const cautionThreshold = 300;   // Start being cautious (new threshold)
+  const immediateThreshold = 120;  // Very close 
+  const dangerThreshold = 200;    // Close enough to warrant avoidance
+  const cautionThreshold = 300;   // Start being cautious 
   
   // Get the closest obstacle
   const closestObstacle = sensorResults[0];
