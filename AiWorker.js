@@ -98,8 +98,7 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   
   debugLog(`Position: [${head[0].toFixed(1)}, ${head[1].toFixed(1)}], Direction: [${normDirX.toFixed(2)}, ${normDirY.toFixed(2)}]`);
   
-  // FIRST check for extremely close walls (this is critical for starting positions)
-  const wallDetectionThreshold = 150; 
+  const wallDetectionThreshold = 50; 
   
   // Calculate distances to walls
   const distToLeftWall = head[0];
