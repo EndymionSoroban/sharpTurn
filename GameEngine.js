@@ -364,7 +364,7 @@ class GameEngine {
                 this.aiDecisionCounters[playerIdx]++;
                 
                 // Calculate AI decisions more frequently - better reaction time
-                const recalcInterval = Math.floor(this.aiSettings.aiReactionTime * 8);
+                const recalcInterval = Math.floor(this.aiSettings.aiReactionTime * 4);
                 
                 if (this.aiDecisionCounters[playerIdx] >= recalcInterval) {
                     // Time to recalculate - check if we're not already calculating for this player
