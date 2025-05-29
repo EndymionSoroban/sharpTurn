@@ -1,12 +1,11 @@
-
 // Debug flag
 const DEBUG_AI = true;
 let debugLogs = [];
 
 // Debug logging function
-function debugLog(...args) {
+function debugLog(playerIdx, ...args) {
   if (!DEBUG_AI) return;
-  const msg = `[AI DEBUG ${Date.now()}] ${args.join(' ')}`;
+  const msg = `[AI DEBUG P${playerIdx} ${Date.now()}] ${args.join(' ')}`;
   debugLogs.push(msg);
   
   // Send logs to main thread
@@ -51,7 +50,7 @@ self.onmessage = function(e) {
         pathPlan: pathPlan
       });
     } catch (err) {
-      debugLog(`ERROR: ${err.message}`);
+      debugLog(playerIdx, `ERROR: ${err.message}`);
       // Send a default "no turn" response in case of error
       self.postMessage({
         playerIdx: playerIdx,
@@ -96,7 +95,7 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   const normDirX = dirX / mag;
   const normDirY = dirY / mag;
   
-  debugLog(`Position: [${head[0].toFixed(1)}, ${head[1].toFixed(1)}], Direction: [${normDirX.toFixed(2)}, ${normDirY.toFixed(2)}]`);
+  debugLog(playerIdx, `Position: [${head[0].toFixed(1)}, ${head[1].toFixed(1)}], Direction: [${normDirX.toFixed(2)}, ${normDirY.toFixed(2)}]`);
   
   const wallDetectionThreshold = 50; 
   
@@ -108,19 +107,19 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   
   // Simple check if we're facing a wall and are very close
   if (distToLeftWall < wallDetectionThreshold && normDirX < 0) {
-    debugLog(`IMMEDIATE WALL DANGER: Left wall at ${distToLeftWall.toFixed(1)} - turning RIGHT`);
+    debugLog(playerIdx, `IMMEDIATE WALL DANGER: Left wall at ${distToLeftWall.toFixed(1)} - turning RIGHT`);
     return maxAngleDelta; // Turn RIGHT
   }
   if (distToRightWall < wallDetectionThreshold && normDirX > 0) {
-    debugLog(`IMMEDIATE WALL DANGER: Right wall at ${distToRightWall.toFixed(1)} - turning LEFT`);
+    debugLog(playerIdx, `IMMEDIATE WALL DANGER: Right wall at ${distToRightWall.toFixed(1)} - turning LEFT`);
     return -maxAngleDelta; // Turn LEFT
   }
   if (distToTopWall < wallDetectionThreshold && normDirY < 0) {
-    debugLog(`IMMEDIATE WALL DANGER: Top wall at ${distToTopWall.toFixed(1)} - turning DOWN`);
+    debugLog(playerIdx, `IMMEDIATE WALL DANGER: Top wall at ${distToTopWall.toFixed(1)} - turning DOWN`);
     return normDirX > 0 ? maxAngleDelta : -maxAngleDelta; // Turn DOWN
   }
   if (distToBottomWall < wallDetectionThreshold && normDirY > 0) {
-    debugLog(`IMMEDIATE WALL DANGER: Bottom wall at ${distToBottomWall.toFixed(1)} - turning UP`);
+    debugLog(playerIdx, `IMMEDIATE WALL DANGER: Bottom wall at ${distToBottomWall.toFixed(1)} - turning UP`);
     return normDirX > 0 ? -maxAngleDelta : maxAngleDelta; // Turn UP
   }
   
@@ -178,7 +177,7 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   for (const result of sensorResults) {
     sensorLog += `${result.name}: ${result.distance.toFixed(1)}, `;
   }
-  debugLog(sensorLog.slice(0, -2)); // Remove trailing comma and space
+  debugLog(playerIdx, sensorLog.slice(0, -2)); // Remove trailing comma and space
   
   // Define danger thresholds - INCREASED for earlier reaction
   const immediateThreshold = 120;  // Very close 
@@ -195,11 +194,11 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
     
     if (closestObstacle.isLeft) {
       // Immediate danger to the left - turn right sharply
-      debugLog(`IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP RIGHT`);
+      debugLog(playerIdx, `IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP RIGHT`);
       return maxAngleDelta;
     } else {
       // Immediate danger to the right or forward - turn left sharply
-      debugLog(`IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP LEFT`);
+      debugLog(playerIdx, `IMMEDIATE DANGER: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning SHARP LEFT`);
       return -maxAngleDelta;
     }
   }
@@ -213,21 +212,21 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
       const rightSensor = sensorResults.find(s => s.name === "Right30°");
       
       if (leftSensor.distance > rightSensor.distance + 30) {
-        debugLog(`DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
+        debugLog(playerIdx, `DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
         return -maxAngleDelta;
       } else {
-        debugLog(`DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
+        debugLog(playerIdx, `DANGER AHEAD: ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
         return maxAngleDelta;
       }
     }
     else if (closestObstacle.isLeft) {
       // Danger to the left - turn right
-      debugLog(`DANGER LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
+      debugLog(playerIdx, `DANGER LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
       return maxAngleDelta;
     }
     else {
       // Danger to the right - turn left
-      debugLog(`DANGER RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
+      debugLog(playerIdx, `DANGER RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
       return -maxAngleDelta;
     }
   }
@@ -241,21 +240,21 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
       const right45Sensor = sensorResults.find(s => s.name === "Right45°");
       
       if (left45Sensor.distance > right45Sensor.distance + 50) {
-        debugLog(`CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
+        debugLog(playerIdx, `CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT (more space)`);
         return -maxAngleDelta;
       } else {
-        debugLog(`CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
+        debugLog(playerIdx, `CAUTION: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT (more space)`);
         return maxAngleDelta;
       }
     }
     else if (closestObstacle.isLeft) {
       // Obstacle to the left - turn right early
-      debugLog(`CAUTION LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
+      debugLog(playerIdx, `CAUTION LEFT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning RIGHT`);
       return maxAngleDelta;
     }
     else {
       // Obstacle to the right - turn left early
-      debugLog(`CAUTION RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
+      debugLog(playerIdx, `CAUTION RIGHT: ${closestObstacle.name} at ${closestObstacle.distance.toFixed(1)} - turning LEFT`);
       return -maxAngleDelta;
     }
   }
@@ -272,10 +271,10 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
     const right30Sensor = sensorResults.find(s => s.name === "Right30°");
     
     if (left30Sensor.distance > right30Sensor.distance + 70) {
-      debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle LEFT turn`);
+      debugLog(playerIdx, `LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle LEFT turn`);
       return -maxAngleDelta / 2;
     } else if (right30Sensor.distance > left30Sensor.distance + 70) {
-      debugLog(`LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle RIGHT turn`);
+      debugLog(playerIdx, `LONG-RANGE: Forward obstacle at ${forwardObstacles[0].distance.toFixed(1)} - gentle RIGHT turn`);
       return maxAngleDelta / 2;
     }
   }
@@ -283,11 +282,11 @@ function earlyDetectionLogic(playerIdx, playerData, canvasWidth, canvasHeight, l
   // No significant obstacles detected - continue straight with occasional random turns
   if (Math.random() < 0.05) {
     const randomTurn = Math.random() < 0.5 ? maxAngleDelta/2 : -maxAngleDelta/2;
-    debugLog(`RANDOM TURN: ${randomTurn}`);
+    debugLog(playerIdx, `RANDOM TURN: ${randomTurn}`);
     return randomTurn;
   }
   
-  debugLog("ALL CLEAR - CONTINUING STRAIGHT");
+  debugLog(playerIdx, "ALL CLEAR - CONTINUING STRAIGHT");
   return 0; // Continue straight
 }
 
